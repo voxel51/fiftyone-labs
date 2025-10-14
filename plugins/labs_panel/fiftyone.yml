@@ -1,0 +1,9 @@
+name: "@labs/labs_panel"
+description: A panel listing all available Labs plugins
+version: 1.0.0
+fiftyone:
+  version: "*"
+url: https://github.com/voxel51/labs/tree/experimental/plugins/labs
+license: Apache 2.0
+panels:
+  - labs_panel
