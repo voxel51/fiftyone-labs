@@ -22,8 +22,8 @@ the following categories:
         <th>Description</th>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/voxel51/labs/tree/experimental/plugins/labs">@labs/labs-panel</a></b></td>
-        <td>👋 An example plugin that contains both Python and JavaScript components</td>
+        <td><b><a href="https://github.com/voxel51/labs/tree/experimental/plugins/labs_panel">@labs/labs_panel</a></b></td>
+        <td>A panel listing all available Labs plugins</td>
     </tr>
 
 ## Community Plugins
