@@ -16,7 +16,8 @@ class LabsPanel(foo.Panel):
         )
 
     def on_load(self, ctx):
-        ctx.panel.state.logo = "https://github.com/voxel51/labs/blob/develop/plugins/labs_panel/assets/labs_logo.png"
+        # ctx.panel.state.logo = "https://github.com/voxel51/labs/blob/develop/plugins/labs_panel/assets/labs_logo.png"
+        ctx.panel.state.logo = "https://drive.google.com/file/d/1BQ5Id-Qp9Vzyp0SPziJk37OQWKJ9ZIfw/view?usp=drive_link"
 
         plugins = list_labs_plugins()
         ctx.panel.state.table = plugins
@@ -50,9 +51,12 @@ class LabsPanel(foo.Panel):
 
         plugins = ctx.panel.get_state("table")
         for idx, p in enumerate(plugins):
+            panel.md("---", name=f"div0_{idx}")
+            panel.md("## " + p["name"], name=f"name_{idx}")
+            panel.md("---", name=f"div1_{idx}")
             repo = GitHubRepository(p["url"])
             content = repo.get_file("README.md").decode()
-            panel.md(content, name=f"readme_{idx}")
+            panel.md("#" + content, name=f"readme_{idx}")
 
         return types.Property(
             panel,
