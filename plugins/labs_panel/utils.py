@@ -22,9 +22,7 @@ def list_labs_plugins(info=False):
         a list of dicts describing the plugins
     """
 
-    repo = GitHubRepository(
-        "https://github.com/voxel51/labs/tree/experimental"
-    )
+    repo = GitHubRepository("https://github.com/voxel51/labs/tree/develop")
     content = repo.get_file("README.md").decode()
     soup = BeautifulSoup(content, "html.parser")
 
