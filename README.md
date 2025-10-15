@@ -13,6 +13,7 @@ the following categories:
 -   [Community Plugins](#community-ml-plugins): third-party plugins that are
     contributed and maintained by the community. These plugins are not
     officially supported by the FiftyOne team, but they're likely awesome!
+-   [Enterprise Plugins](#enterprise-ml-plugins): plugins that are only available via [FiftyOne Enterprise](https://docs.voxel51.com/enterprise/index.html)
 
 ## Machine Learning Plugins
 
@@ -27,6 +28,18 @@ the following categories:
     </tr>
 
 ## Community Plugins
+
+<table>
+    <tr>
+        <th>Name</th>
+        <th>Description</th>
+    </tr>
+    <tr>
+        <td><b><a href="https://github.com/griffbr/hello-labs">@griffbr/hello-labs</a></b></td>
+        <td>First labs plugin</td>
+    </tr>
+
+## Enterprise Plugins
 
 <table>
     <tr>

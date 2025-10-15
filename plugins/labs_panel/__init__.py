@@ -1,3 +1,5 @@
+import os
+
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
 
@@ -9,32 +11,33 @@ class LabsPanel(foo.Panel):
     def config(self):
         return foo.PanelConfig(
             name="labs_panel",
-            label="FiftyOne Labs Panel",
+            label="FiftyOne Labs",
         )
 
     def on_load(self, ctx):
         plugins = list_labs_plugins()
+        ctx.panel.state.table = plugins
 
-        plugins_table = []
-        for p in plugins:
-            plugins_table.append(
-                {
-                    "Plugin": p.get("name", ""),
-                    "Description": p.get("description", ""),
-                    "URL": p.get("url", ""),
-                }
-            )
-
-        ctx.panel.state.table = plugins_table
+    def on_plugin_select(self, ctx):
+        pass
 
     def render(self, ctx):
         panel = types.Object()
 
-        table = types.TableView()
-        table.add_column("Plugin", label="Plugin")
-        table.add_column("Description", label="Description")
+        # TODO: use relative path?
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        markdown_path = os.path.join(current_dir, "assets/labs_title.md")
 
-        panel.list("table", types.Object(), view=table, label="Labs Plugins")
+        with open(markdown_path, "r") as markdown_file:
+            panel.md(markdown_file.read(), name="markdown_title")
+
+        # List of all the Labs plugins
+        table = types.TableView()
+        table.add_column("name", label="Plugin")
+        table.add_column("description", label="Description")
+        table.add_column("url", label="URL")
+        table.add_column("image")
+        panel.list("table", types.Object(), view=table)
 
         return types.Property(panel, view=types.ObjectView())
 
