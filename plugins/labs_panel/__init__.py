@@ -2,6 +2,7 @@ import os
 
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
+from fiftyone.utils.github import GitHubRepository
 
 from .utils import list_labs_plugins
 
@@ -15,6 +16,8 @@ class LabsPanel(foo.Panel):
         )
 
     def on_load(self, ctx):
+        ctx.panel.state.logo = "https://github.com/voxel51/labs/blob/develop/plugins/labs_panel/assets/labs_logo.png"
+
         plugins = list_labs_plugins()
         ctx.panel.state.table = plugins
 
@@ -24,12 +27,18 @@ class LabsPanel(foo.Panel):
     def render(self, ctx):
         panel = types.Object()
 
-        # TODO: use relative path?
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        markdown_path = os.path.join(current_dir, "assets/labs_title.md")
+        panel.md(
+            "# FiftyOne Labs",
+            name="labs_header",
+        )
 
-        with open(markdown_path, "r") as markdown_file:
-            panel.md(markdown_file.read(), name="markdown_title")
+        image_holder = types.ImageView()
+        panel.view("logo", view=image_holder)
+
+        panel.md(
+            "_Machine Learning research solutions and experimental features_",
+            name="labs_subtitle",
+        )
 
         # List of all the Labs plugins
         table = types.TableView()
@@ -39,7 +48,18 @@ class LabsPanel(foo.Panel):
         table.add_column("image")
         panel.list("table", types.Object(), view=table)
 
-        return types.Property(panel, view=types.ObjectView())
+        plugins = ctx.panel.get_state("table")
+        for idx, p in enumerate(plugins):
+            repo = GitHubRepository(p["url"])
+            content = repo.get_file("README.md").decode()
+            panel.md(content, name=f"readme_{idx}")
+
+        return types.Property(
+            panel,
+            view=types.ObjectView(
+                align_x="center", align_y="center", orientation="vertical"
+            ),
+        )
 
 
 def register(p):
