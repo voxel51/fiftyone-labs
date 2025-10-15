@@ -26,6 +26,7 @@ the following categories:
         <td><b><a href="https://github.com/voxel51/labs/tree/experimental/plugins/labs_panel">@labs/labs_panel</a></b></td>
         <td>A panel listing all available Labs plugins</td>
     </tr>
+</table>
 
 ## Community Plugins
 
@@ -38,6 +39,7 @@ the following categories:
         <td><b><a href="https://github.com/griffbr/hello-labs">@griffbr/hello-labs</a></b></td>
         <td>First labs plugin</td>
     </tr>
+</table>
 
 ## Enterprise Plugins
 
@@ -50,3 +52,4 @@ the following categories:
         <td><b><a href="https://github.com/griffbr/hello-labs">@griffbr/hello-labs</a></b></td>
         <td>First labs plugin</td>
     </tr>
+</table>
