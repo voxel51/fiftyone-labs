@@ -1,6 +1,8 @@
 import logging
+import markdown
 from bs4 import BeautifulSoup
 
+import fiftyone as fo
 from fiftyone.utils.github import GitHubRepository
 import fiftyone.plugins.utils as fopu
 
@@ -24,24 +26,58 @@ def list_labs_plugins(info=False):
 
     repo = GitHubRepository("https://github.com/voxel51/labs/tree/develop")
     content = repo.get_file("README.md").decode()
-    soup = BeautifulSoup(content, "html.parser")
+    html_content = markdown.markdown(content, extensions=["tables"])
+    heading_tables = _read_tables_from_html(html_content)
 
     plugins = []
-    for row in soup.find_all("tr"):
-        cols = row.find_all(["td"])
-        if len(cols) != 2:
-            continue
+    for heading in heading_tables:
+        table = heading_tables[heading]
+        rows = table.find_all("tr")
+        for row in rows:
+            cols = row.find_all("td")
+            if len(cols) != 2:
+                continue
 
-        try:
-            name = cols[0].text.strip()
-            url = cols[0].find("a")["href"]
-            description = cols[1].text.strip()
-            plugins.append(dict(name=name, url=url, description=description))
-        except Exception as e:
-            logger.debug("Failed to parse plugin row: %s", e)
+            try:
+                name = cols[0].text.strip()
+                url = cols[0].find("a")["href"]
+                description = cols[1].text.strip()
+                plugins.append(
+                    dict(
+                        name=name,
+                        url=url,
+                        description=description,
+                        category=heading,
+                    )
+                )
+            except Exception as e:
+                logger.debug("Failed to parse plugin row: %s", e)
 
     if not info:
         return plugins
 
     tasks = [(p["url"], None) for p in plugins]
     return fopu.get_plugin_info(tasks)
+
+
+def _read_tables_from_html(html_content):
+    soup = BeautifulSoup(html_content, "html.parser")
+    is_enterprise = hasattr(fo.constants, "TEAMS_VERSION")
+
+    headings = soup.find_all("h2")
+    heading_tables = {}
+
+    for heading in headings:
+        heading_text = heading.get_text()
+
+        if not is_enterprise and "Enterprise" in heading_text:
+            continue
+        table = heading.find_next("table")
+
+        next_heading = heading.find_next(["h1", "h2", "h3", "h4", "h5", "h6"])
+        if table and (
+            not next_heading or table.sourceline < next_heading.sourceline
+        ):
+            heading_tables[heading_text] = table
+
+    return heading_tables

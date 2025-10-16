@@ -26,10 +26,6 @@ the following categories:
         <td><b><a href="https://github.com/voxel51/labs/tree/develop/plugins/labs_panel">@labs/labs_panel</a></b></td>
         <td>A panel listing all available Labs plugins</td>
     </tr>
-    <tr>
-        <td><b><a href="https://github.com/AdonaiVera/bddoia-fiftyone">AdonaiVera/bddoia-fiftyone</a></b></td>
-        <td>BDDOIA Safe/Unsafe Action Dataset for FiftyOne</td>
-    </tr>
 </table>
 
 ## Community Plugins
@@ -53,7 +49,7 @@ the following categories:
         <th>Description</th>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/griffbr/hello-labs">@griffbr/hello-labs</a></b></td>
-        <td>First labs plugin</td>
+        <td><b><a href="https://github.com/griffbr/box-combine">@griffbr/box-combine</a></b></td>
+        <td>Weighted Box Fusion for detections</td>
     </tr>
 </table>
