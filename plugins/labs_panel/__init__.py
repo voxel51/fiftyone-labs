@@ -18,7 +18,7 @@ class LabsPanel(foo.Panel):
 
     def on_load(self, ctx):
         # TODO: Change to assets path when repo is public
-        ctx.panel.state.logo = "https://github.com/manushreegangwar/assets/blob/fee702d587ca56de89da55511199a9ce776cd4f2/labs_logo_full.png"
+        ctx.panel.state.logo = "https://raw.githubusercontent.com/manushreegangwar/assets/refs/heads/main/labs_logo_full.png"
 
         plugins = list_labs_plugins()
         ctx.panel.state.table = plugins
@@ -52,15 +52,14 @@ class LabsPanel(foo.Panel):
         panel = types.Object()
 
         # Panel header
+        panel.img("logo", height="120px")
         panel.md(
-            "# FiftyOne Labs",
-            name="labs_header",
-        )
-        image_holder = types.ImageView()
-        panel.view("logo", view=image_holder)
-        panel.md(
-            "_Machine Learning research solutions and experimental features_",
+            "_FiftyOne Labs brings research solutions and experimental features for machine learning_",
             name="labs_subtitle",
+        )
+        panel.md(
+            "Please note that these features are experimental. They may not be production-ready.\nWe encourage you to try them out, share your feedback, and contribute.",
+            name="labs_description",
         )
 
         # Table of plugins
@@ -107,9 +106,7 @@ class LabsPanel(foo.Panel):
 
         return types.Property(
             panel,
-            view=types.ObjectView(
-                align_x="center", align_y="center", orientation="vertical"
-            ),
+            view=types.GridView(align_x="center", align_y="center", gap=2),
         )
 
 
