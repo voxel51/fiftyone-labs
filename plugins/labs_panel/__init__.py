@@ -58,8 +58,8 @@ class LabsPanel(foo.Panel):
             name="labs_subtitle",
         )
         panel.md(
-            "Please note that these features are experimental. They may be in active development and are not ready for production environments. We encourage you to try them out, share your feedback, and contribute.",
-            name="labs_description_1",
+            "Please note that these features are experimental. They may not be production-ready.\nWe encourage you to try them out, share your feedback, and contribute.",
+            name="labs_description",
         )
 
         # Table of plugins
