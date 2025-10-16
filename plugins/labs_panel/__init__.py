@@ -17,7 +17,8 @@ class LabsPanel(foo.Panel):
         )
 
     def on_load(self, ctx):
-        ctx.panel.state.logo = "https://github.com/voxel51/labs/blob/develop/plugins/labs_panel/assets/labs_logo.png"
+        # TODO: Change to assets path when repo is public
+        ctx.panel.state.logo = "https://github.com/manushreegangwar/assets/blob/fee702d587ca56de89da55511199a9ce776cd4f2/labs_logo_full.png"
 
         plugins = list_labs_plugins()
         ctx.panel.state.table = plugins
@@ -41,22 +42,28 @@ class LabsPanel(foo.Panel):
         )
         ctx.ops.notify(f"{plugin_names[0]} installed!", variant="success")
 
+    def show_url(self, ctx):
+        ctx.ops.notify(
+            f"README available at {ctx.panel.state.plugin_url}",
+            variant="success",
+        )
+
     def render(self, ctx):
         panel = types.Object()
 
+        # Panel header
         panel.md(
             "# FiftyOne Labs",
             name="labs_header",
         )
-
         image_holder = types.ImageView()
         panel.view("logo", view=image_holder)
-
         panel.md(
             "_Machine Learning research solutions and experimental features_",
             name="labs_subtitle",
         )
 
+        # Table of plugins
         table = types.TableView()
         table.add_column("name", label="Plugin")
         table.add_column("description", label="Description")
@@ -64,12 +71,10 @@ class LabsPanel(foo.Panel):
         table.add_column("category", label="Category")
         panel.list("table", types.Object(), view=table)
 
-        plugins = ctx.panel.get_state("table")
+        # Dropdown for installation
         menu = panel.menu("menu", variant="square", color="secondary")
-
-        # Define a dropdown menu and add choices
         dropdown = types.DropdownView()
-
+        plugins = ctx.panel.get_state("table")
         for p in plugins:
             dropdown.add_choice(
                 p["name"],
@@ -80,7 +85,7 @@ class LabsPanel(foo.Panel):
         menu.str(
             "dropdown",
             view=dropdown,
-            label="Labs Menu",
+            label="Try Labs",
             on_change=self.alter_selection,
         )
 
@@ -88,9 +93,15 @@ class LabsPanel(foo.Panel):
             if ctx.panel.state.selection == p["name"]:
                 ctx.panel.state.plugin_url = p["url"]
                 menu.btn(
-                    p["name"],
+                    f"{p['name']}_install",
                     label="Install",
                     on_click=self.install_plugin,
+                    color="51",
+                )
+                menu.btn(
+                    f"{p['name']}_info",
+                    label="Learn More",
+                    on_click=self.show_url,
                     color="51",
                 )
 
