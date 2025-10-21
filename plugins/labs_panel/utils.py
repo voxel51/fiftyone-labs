@@ -5,14 +5,15 @@ from bs4 import BeautifulSoup
 import fiftyone as fo
 from fiftyone.utils.github import GitHubRepository
 import fiftyone.plugins.utils as fopu
+import fiftyone.plugins.core as fopc
 
 PLUGIN_METADATA_FILENAMES = ("fiftyone.yml", "fiftyone.yaml")
 
 logger = logging.getLogger(__name__)
 
 
-def list_labs_plugins(info=False):
-    """Returns a list of available plugins registered in the
+def list_labs_features(info=False):
+    """Returns a list of available feature plugins registered in the
     `FiftyOne Labs repository <https://github.com/voxel51/labs>`_
     README.
 
@@ -60,18 +61,35 @@ def list_labs_plugins(info=False):
     return fopu.get_plugin_info(tasks)
 
 
+def add_version_info_to_features(lab_features):
+    curr_plugins_map = {
+        pdef.name: pdef for pdef in fopc.list_plugins(enabled="all")
+    }
+
+    for p in lab_features:
+        plugin_def = curr_plugins_map.get(p["name"])
+        if plugin_def is None:
+            # lab feature not installed
+            install_stat = "Not installed"
+            install_ver = None
+        else:
+            install_stat = "Installed"
+            install_ver = plugin_def.version
+
+        p["status"] = install_stat
+        p["curr_version"] = install_ver
+
+    return lab_features
+
+
 def _read_tables_from_html(html_content):
     soup = BeautifulSoup(html_content, "html.parser")
-    is_enterprise = hasattr(fo.constants, "TEAMS_VERSION")
 
     headings = soup.find_all("h2")
     heading_tables = {}
 
     for heading in headings:
         heading_text = heading.get_text()
-
-        if not is_enterprise and "Enterprise" in heading_text:
-            continue
         table = heading.find_next("table")
 
         next_heading = heading.find_next(["h1", "h2", "h3", "h4", "h5", "h6"])
