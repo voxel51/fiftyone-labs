@@ -2,14 +2,13 @@
 
 FiftyOne Labs brings research solutions and experimental features for machine learning.
 
-## Table of Contents
+## Table of Features
 
 This repository contains a curated collection of
-[FiftyOne Labs Plugins](https://docs.voxel51.com/plugins/index.html), organized into
-the following categories:
+FiftyOne Labs Features which are developed using [FiftyOne plugins ecosystem](https://docs.voxel51.com/plugins/index.html). These features are organized into the following categories:
 
--   [Machine Learning Lab](#ml-features): core machine learning experimental features
--   [Visualization Lab](#visualization-features): features for advanced visualization
+- [Machine Learning Lab](#ml-features): core machine learning experimental features
+- [Visualization Lab](#visualization-features): features for advanced visualization
 
 ## Machine Learning Lab
 
@@ -40,3 +39,40 @@ the following categories:
         <td>Placeholder for visualization feature</td>
     </tr>
 </table>
+
+## Using Labs
+
+### Install FiftyOne
+
+If you haven't already, install
+[FiftyOne](https://github.com/voxel51/fiftyone):
+
+```shell
+pip install fiftyone
+```
+
+### Installing a Labs Feature
+
+To install all the features in this repository, you can run:
+
+```shell
+fiftyone plugins download https://github.com/voxel51/labs
+```
+
+You can also install a specific plugin using the `--plugin-names` flag:
+
+```shell
+fiftyone plugins download \
+    https://github.com/voxel51/labs \
+    --plugin-names <name>
+```
+
+### Installing via Labs Panel
+
+[Labs Panel](plugins/labs_panel/README.md) offers a convenient interface to install Labs feature in the FiftyOne App. To get started, install the Labs Panel:
+
+```shell
+fiftyone plugins download \
+    https://github.com/voxel51/fiftyone-plugins \
+    --plugin-names @labs/labs_panel
+```
