@@ -70,14 +70,11 @@ def add_version_info_to_features(lab_features):
         plugin_def = curr_plugins_map.get(p["name"])
         if plugin_def is None:
             # lab feature not installed
-            install_stat = "Not installed"
-            install_ver = None
+            p["status"] = "Not installed"
+            p["curr_version"] = None
         else:
-            install_stat = "Installed"
-            install_ver = plugin_def.version
-
-        p["status"] = install_stat
-        p["curr_version"] = install_ver
+            p["status"] = "Installed"
+            p["curr_version"] = plugin_def.version
 
     return lab_features
 
