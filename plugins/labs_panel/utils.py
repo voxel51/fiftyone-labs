@@ -22,7 +22,7 @@ def list_labs_features(info=False):
             (True) or just return the available info from the README (False)
 
     Returns:
-        a list of dicts describing the plugins
+        a list of dicts describing the features
     """
 
     repo = GitHubRepository("https://github.com/voxel51/labs")
@@ -62,6 +62,14 @@ def list_labs_features(info=False):
 
 
 def add_version_info_to_features(lab_features):
+    """Adds installation status and version information to each lab feature dicts.
+
+    Args:
+        lab_features: a list of dicts describing the features
+
+    Returns:
+        a list of dicts describing the features
+    """
     curr_plugins_map = {
         pdef.name: pdef for pdef in fopc.list_plugins(enabled="all")
     }
