@@ -1,11 +1,8 @@
-import os
-
 import fiftyone.operators as foo
 import fiftyone.plugins as fop
 import fiftyone.operators.types as types
-from fiftyone.utils.github import GitHubRepository
 
-from .utils import list_labs_plugins
+from .utils import list_labs_features, add_version_info_to_features
 
 
 class LabsPanel(foo.Panel):
@@ -20,7 +17,7 @@ class LabsPanel(foo.Panel):
         # TODO: Change to assets path when repo is public
         ctx.panel.state.logo = "https://raw.githubusercontent.com/manushreegangwar/assets/refs/heads/main/labs_logo_full.png"
 
-        plugins = list_labs_plugins()
+        plugins = add_version_info_to_features(list_labs_features())
         ctx.panel.state.table = plugins
         ctx.panel.state.plugin_url = None
 
@@ -29,18 +26,31 @@ class LabsPanel(foo.Panel):
 
     def install_plugin(self, ctx):
         plugins = ctx.panel.get_state("table")
-        plugin_names = []
         for p in plugins:
             if p["url"] == ctx.panel.state.plugin_url:
-                plugin_names = [p.get("name")]
+                fop.download_plugin(
+                    ctx.panel.state.plugin_url,
+                    plugin_names=[p.get("name")],
+                    overwrite=True,
+                )
+                pdef = fop.core.get_plugin(p["name"])
+                stale_version = p.get("curr_version")
+                curr_version = pdef.version
+                if stale_version:
+                    ctx.ops.notify(
+                        f"{p['name']} updated from {stale_version} to {curr_version}",
+                        variant="success",
+                    )
+                else:
+                    ctx.ops.notify(
+                        f"{p['name']} version {curr_version} installed",
+                        variant="success",
+                    )
+                p["status"] = "Installed"
+                p["curr_version"] = curr_version
                 break
 
-        fop.download_plugin(
-            ctx.panel.state.plugin_url,
-            plugin_names=plugin_names,
-            overwrite=True,
-        )
-        ctx.ops.notify(f"{plugin_names[0]} installed!", variant="success")
+        ctx.panel.state.table = plugins
 
     def show_url(self, ctx):
         ctx.ops.notify(
@@ -58,16 +68,18 @@ class LabsPanel(foo.Panel):
             name="labs_subtitle",
         )
         panel.md(
-            "Please note that these features are experimental. They may not be production-ready.\nWe encourage you to try them out, share your feedback, and contribute.",
+            "Please note that these features are experimental. They may not be production-ready. We encourage you to try them out, share your feedback, and contribute.",
             name="labs_description",
         )
 
         # Table of plugins
         table = types.TableView()
-        table.add_column("name", label="Plugin")
+        table.add_column("name", label="Labs Feature")
         table.add_column("description", label="Description")
-        table.add_column("url", label="URL")
         table.add_column("category", label="Category")
+        table.add_column("status", label="Status")
+        table.add_column("curr_version", label="Version")
+        table.add_column("url", label="URL")
         panel.list("table", types.Object(), view=table)
 
         # Dropdown for installation
