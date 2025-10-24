@@ -15,7 +15,7 @@ class LabsPanel(foo.Panel):
 
     def on_load(self, ctx):
         # TODO: Change to assets path when repo is public
-        ctx.panel.state.logo = "https://raw.githubusercontent.com/manushreegangwar/assets/refs/heads/main/labs_logo_full.png"
+        ctx.panel.state.logo = "https://raw.githubusercontent.com/manushreegangwar/assets/refs/heads/main/labs_logo_full_dark.png"
 
         plugins = add_version_info_to_features(list_labs_features())
         ctx.panel.state.table = plugins
@@ -68,7 +68,7 @@ class LabsPanel(foo.Panel):
             name="labs_subtitle",
         )
         panel.md(
-            "Please note that these features are experimental. They may not be production-ready. We encourage you to try them out, share your feedback, and contribute.",
+            "Please note that these features are experimental. They may not be production-ready. We encourage you to try them out and share your feedback.",
             name="labs_description",
         )
 
