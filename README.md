@@ -25,6 +25,10 @@ FiftyOne Labs Features which are developed using [FiftyOne plugins ecosystem](ht
         <td><b><a href="https://github.com/griffbr/box-combine">@griffbr/box-combine</a></b></td>
         <td>Weighted Box Fusion for detections</td>
     </tr>
+    <tr>
+        <td><b><a href="https://github.com/voxel51/zero-shot-coreset-selection">@voxel51/zero-shot-coreset-selection</a></b></td>
+        <td>Zcore scores for unlabeled image data</td>
+    </tr>
 </table>
 
 ## Visualization Lab
