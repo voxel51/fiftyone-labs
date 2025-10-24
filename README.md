@@ -1,5 +1,9 @@
 # FiftyOne Labs
 
+<p align="center">
+  <img src="assets/logo.png" alt="FiftyOne Labs Logo" width="75%">
+</p>
+
 FiftyOne Labs brings research solutions and experimental features for machine learning.
 
 ## Table of Features
