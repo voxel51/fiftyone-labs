@@ -1,0 +1,9 @@
+name: "@labs/video_apply_model"
+description: An operator applying an image model to video frames
+version: 1.0.0
+fiftyone:
+  version: "*"
+url: https://github.com/voxel51/labs/tree/main/plugins/video_apply_model
+license: Apache 2.0
+operators:
+  - video_apply_model

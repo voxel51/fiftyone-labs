@@ -3,7 +3,7 @@ description: A panel listing all available Labs plugins
 version: 1.0.0
 fiftyone:
   version: "*"
-url: https://github.com/voxel51/labs
+url: https://github.com/voxel51/labs/tree/main/plugins/labs_panel
 license: Apache 2.0
 panels:
   - labs_panel

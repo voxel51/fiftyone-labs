@@ -26,6 +26,10 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
         <td>A panel listing all available Labs plugins</td>
     </tr>
     <tr>
+        <td><b><a href="https://github.com/voxel51/labs/tree/main/plugins/labs_panel">@labs/labs_panel</a></b></td>
+        <td>Apply image model to video dataset using torch dataloader</td>
+    </tr>
+    <tr>
         <td><b><a href="https://github.com/griffbr/box-combine">@griffbr/box-combine</a></b></td>
         <td>Weighted Box Fusion for detections</td>
     </tr>
