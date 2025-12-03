@@ -1,4 +1,4 @@
-name: "@labs/video_apply_model"
+name: "@51labs/video_apply_model"
 description: An operator applying an image model to video frames
 version: 1.0.0
 fiftyone:

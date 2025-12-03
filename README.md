@@ -22,11 +22,11 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
         <th>Description</th>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/voxel51/labs/tree/main/plugins/labs_panel">@labs/labs_panel</a></b></td>
+        <td><b><a href="https://github.com/voxel51/labs/tree/main/plugins/labs_panel">@51labs/labs_panel</a></b></td>
         <td>A panel listing all available Labs plugins</td>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/voxel51/labs/tree/main/plugins/labs_panel">@labs/labs_panel</a></b></td>
+        <td><b><a href="https://github.com/voxel51/labs/tree/main/plugins/video_apply_model">@51labs/video_apply_model</a></b></td>
         <td>Apply image model to video dataset using torch dataloader</td>
     </tr>
     <tr>
@@ -47,7 +47,7 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
         <th>Description</th>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/griffbr/hello-labs">@griffbr/hello-labs</a></b></td>
+        <td>@51labs/viz_placeholder</td>
         <td>Placeholder for visualization feature</td>
     </tr>
 </table>
@@ -88,3 +88,7 @@ fiftyone plugins download \
     https://github.com/voxel51/fiftyone-plugins \
     --plugin-names @labs/labs_panel
 ```
+
+## Contributing
+
+Check out the [contributions guide](CONTRIBUTING.md) for more information.
