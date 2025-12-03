@@ -1,4 +1,4 @@
-name: "@labs/labs_panel"
+name: "@51labs/labs_panel"
 description: A panel listing all available Labs plugins
 version: 1.0.0
 fiftyone:

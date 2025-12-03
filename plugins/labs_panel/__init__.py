@@ -61,6 +61,8 @@ class LabsPanel(foo.Panel):
     def render(self, ctx):
         panel = types.Object()
 
+        panel.message("beta_tag", "BETA VERSION")
+
         # Panel header
         panel.img("logo", height="120px")
         panel.md(
