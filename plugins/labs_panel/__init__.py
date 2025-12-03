@@ -14,7 +14,7 @@ class LabsPanel(foo.Panel):
         )
 
     def on_load(self, ctx):
-        ctx.panel.state.logo = "https://raw.githubusercontent.com/voxel51/labs/7ac45f8d8d968e0d3471a0e600d8c029c70454fc/assets/labs_logo.svg"
+        ctx.panel.state.logo = "https://raw.githubusercontent.com/voxel51/labs/refs/heads/main/assets/labs_logo.svg"
 
         plugins = add_version_info_to_features(list_labs_features())
         ctx.panel.state.table = plugins
