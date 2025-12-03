@@ -81,7 +81,7 @@ fiftyone plugins download \
 
 ### Installing via Labs Panel
 
-[Labs Panel](plugins/labs_panel/README.md) offers a convenient interface to install Labs feature in the FiftyOne App. To get started, install the Labs Panel:
+[Labs Panel](plugins/labs_panel/README.md) offers a convenient interface to install Labs features in the FiftyOne App. To get started, install the Labs Panel:
 
 ```shell
 fiftyone plugins download \
