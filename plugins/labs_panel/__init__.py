@@ -51,6 +51,27 @@ class LabsPanel(foo.Panel):
 
         ctx.panel.state.table = plugins
 
+    def uninstall_plugin(self, ctx):
+        plugins = ctx.panel.get_state("table")
+        for p in plugins:
+            if p["name"] == ctx.panel.state.selection:
+                curr_version = p.get("curr_version")
+                if curr_version:
+                    fop.delete_plugin(ctx.panel.state.selection)
+                    ctx.ops.notify(
+                        f"{p['name']} uninstalled",
+                        variant="success",
+                    )
+                    p["status"] = "Not installed"
+                    p["curr_version"] = None
+                else:
+                    ctx.ops.notify(
+                        f"{p['name']} is not currently installed",
+                        variant="success",
+                    )
+                break
+        ctx.panel.state.table = plugins
+
     def show_url(self, ctx):
         ctx.ops.notify(
             f"README available at {ctx.panel.state.plugin_url}",
@@ -116,6 +137,13 @@ class LabsPanel(foo.Panel):
                     on_click=self.show_url,
                     color="51",
                 )
+                if p.get("curr_version"):
+                    menu.btn(
+                        f"{p['name']}_uninstall",
+                        label="Uninstall",
+                        on_click=self.uninstall_plugin,
+                        color="51",
+                    )
 
         return types.Property(
             panel,
