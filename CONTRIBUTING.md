@@ -1,6 +1,6 @@
 # Contributing to Labs
 
-Labs is restricted to features developed and maintained the Machine Learning team at Voxel51. Community contributions are not supported currently.
+Features can be developed as [FiftyOne plugins](https://docs.voxel51.com/plugins/index.html) and added to FiftyOne Labs as follows:
 
 ## Adding new features from public repositories
 

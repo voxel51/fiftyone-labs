@@ -1,7 +1,7 @@
 # FiftyOne Labs
 
 <p align="center">
-  <img src="assets/labs_logo_full_dark.png" alt="FiftyOne Labs Logo" width="50%">
+  <img src="assets/labs_logo.svg" alt="FiftyOne Labs Logo" width="50%">
 </p>
 
 FiftyOne Labs brings research solutions and experimental features for machine learning.
@@ -30,11 +30,11 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
         <td>Apply image model to video dataset using torch dataloader</td>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/griffbr/box-combine">@griffbr/box-combine</a></b></td>
+        <td><b><a href="https://github.com/griffbr/box-combine">@51labs/box-combine</a></b></td>
         <td>Weighted Box Fusion for detections</td>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/voxel51/zero-shot-coreset-selection">@voxel51/zero-shot-coreset-selection</a></b></td>
+        <td><b><a href="https://github.com/voxel51/zero-shot-coreset-selection">@51labs/zero-shot-coreset-selection</a></b></td>
         <td>Zero-shot coreset selection (ZCore) for unlabeled image data</td>
     </tr>
 </table>
@@ -86,7 +86,7 @@ fiftyone plugins download \
 ```shell
 fiftyone plugins download \
     https://github.com/voxel51/fiftyone-plugins \
-    --plugin-names @labs/labs_panel
+    --plugin-names @51labs/labs_panel
 ```
 
 ## Contributing
