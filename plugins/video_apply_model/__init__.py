@@ -70,17 +70,6 @@ class VideoApplyModel(foo.Operator):
             required=False,
         )
 
-        inputs.str(
-            "parse_type",
-            label="Parsing Type",
-            description=(
-                "Whether to parse chunks in an interleaved manner from videos or "
-                "parse chunks sequentially from one video before moving to the next video"
-            ),
-            required=False,
-            default="sequential",
-        )
-
         inputs.bool(
             "skip_failures",
             label="Skip Failures",
@@ -106,7 +95,6 @@ class VideoApplyModel(foo.Operator):
         batch_size = ctx.params.get("batch_size", None)
         num_workers = ctx.params.get("num_workers", None)
         frames_chunk_size = ctx.params.get("frames_chunk_size", None)
-        parse_type = ctx.params.get("parse_type", None)
         skip_failures = ctx.params.get("skip_failures", True)
 
         apply_image_model_to_video_frames(
@@ -116,7 +104,6 @@ class VideoApplyModel(foo.Operator):
             confidence_thresh=conf_thresh,
             batch_size=batch_size,
             frames_chunk_size=frames_chunk_size,
-            parse_type=parse_type,
             num_workers=num_workers,
             skip_failures=skip_failures,
             progress=None,
