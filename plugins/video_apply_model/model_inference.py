@@ -156,7 +156,6 @@ def _del_decoder(video_path=None):
         _decoder = _worker_decoder_cache.pop(video_path)
         _decoder.close()
         del _worker_iterator_cache[video_path]
-        logger.debug(f"Decoder cache deleted for {video_path}.")
     else:
         video_path, old_decoder = _worker_decoder_cache.popitem(last=False)
         old_decoder.close()
