@@ -33,7 +33,7 @@ class LabsPanel(foo.Panel):
         )
 
     def on_load(self, ctx):
-        ctx.panel.state.logo = "https://raw.githubusercontent.com/voxel51/labs/refs/heads/main/assets/labs_logo.svg"
+        ctx.panel.state.logo = "https://raw.githubusercontent.com/voxel51/labs/refs/heads/main/assets/labs_logo_transparent_dark.svg"
 
         plugins = add_version_info_to_features(list_labs_features())
         ctx.panel.state.table = plugins
@@ -118,7 +118,7 @@ class LabsPanel(foo.Panel):
         # Panel header
         panel.img("logo", height="120px")
         panel.md(
-            "_FiftyOne Labs brings research solutions and experimental features for machine learning_",
+            "##### FiftyOne Labs brings research solutions and experimental features for machine learning",
             name="labs_subtitle",
         )
         panel.md(
@@ -178,8 +178,7 @@ class LabsPanel(foo.Panel):
                     )
 
         return types.Property(
-            panel,
-            view=types.GridView(align_x="center", align_y="center", gap=2),
+            panel, view=types.ObjectView(align_x="center", align_y="center", gap=2),
         )
 
 
