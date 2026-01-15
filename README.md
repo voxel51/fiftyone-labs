@@ -1,7 +1,8 @@
 # FiftyOne Labs
 
 <p align="center">
-  <img src="assets/labs_logo.svg" alt="FiftyOne Labs Logo" width="50%">
+  <img src="https://github.com/voxel51/labs/raw/main/assets/labs_logo_transparent_light.svg#gh-light-mode-only" alt="FiftyOne Labs Logo" width="50%">
+  <img src="https://github.com/voxel51/labs/raw/main/assets/labs_logo_transparent_dark.svg#gh-dark-mode-only" alt="FiftyOne Labs Logo" width="50%">
 </p>
 
 FiftyOne Labs brings research solutions and experimental features for machine learning.
