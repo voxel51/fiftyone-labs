@@ -90,6 +90,10 @@ fiftyone plugins download \
     --plugin-names @51labs/labs_panel
 ```
 
+## Feedback
+
+For questions, comments, and suggestions, head to the `fiftyone-labs` [Discord Channel](https://discord.com/channels/1266527359511564372/1466492755214733625)
+
 ## Contributing
 
 Check out the [contributions guide](CONTRIBUTING.md) for more information.

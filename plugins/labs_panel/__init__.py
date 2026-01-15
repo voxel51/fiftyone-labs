@@ -33,7 +33,7 @@ class LabsPanel(foo.Panel):
         )
 
     def on_load(self, ctx):
-        ctx.panel.state.logo = "https://raw.githubusercontent.com/voxel51/labs/refs/heads/main/assets/labs_logo.svg"
+        ctx.panel.state.logo = "https://raw.githubusercontent.com/voxel51/labs/refs/heads/main/assets/labs_logo_transparent_dark.svg"
 
         plugins = add_version_info_to_features(list_labs_features())
         ctx.panel.state.table = plugins
@@ -118,11 +118,14 @@ class LabsPanel(foo.Panel):
         # Panel header
         panel.img("logo", height="120px")
         panel.md(
-            "_FiftyOne Labs brings research solutions and experimental features for machine learning_",
+            "##### FiftyOne Labs brings research solutions and experimental features for machine learning",
             name="labs_subtitle",
         )
         panel.md(
-            "Please note that these features are experimental. They may not be production-ready. We encourage you to try them out and share your feedback.",
+            (
+                "Please note that these features are experimental. They may not be production-ready.\n\n"
+                "We encourage you to try them out and share your feedback on the [FiftyOne Labs Discord Channel](https://discord.com/channels/1266527359511564372/1466492755214733625)"
+            ),
             name="labs_description",
         )
 
