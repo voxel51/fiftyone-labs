@@ -1,5 +1,7 @@
 """Few-Shot Learning Panel for FiftyOne Labs."""
 
+import contextlib
+import io
 import json
 import numpy as np
 from dataclasses import dataclass, field
@@ -25,6 +27,20 @@ EMBEDDING_ZOO_MODELS = {
     "DINOv2 (ViT-B/14)": "dinov2-vitb14-torch",
 }
 
+EMBEDDING_FIELD_DEFAULTS = {
+    "ResNet18": "resnet18_embeddings",
+    "ResNet50": "resnet50_embeddings",
+    "CLIP (ViT-B/32)": "clip_vit_b32_embeddings",
+    "DINOv2 (ViT-B/14)": "dinov2_vitb14_embeddings",
+}
+
+EMBEDDING_DIMENSIONS = {
+    "ResNet18": 512,
+    "ResNet50": 2048,
+    "CLIP (ViT-B/32)": 512,
+    "DINOv2 (ViT-B/14)": 768,
+}
+
 # Model hyperparameters schema: name -> {param: (default, description, type, [choices])}
 # type: "int", "float", "str", "choice"
 MODEL_HYPERPARAMS = {
@@ -48,6 +64,7 @@ from .utils import EmbeddingsGetItem, collate_fn, extract_probability
 class FewShotSession:
     """Tracks few-shot learning session state."""
 
+    embedding_model: str = "ResNet18"
     embedding_field: str = "resnet18_embeddings"
     label_field: str = "fewshot_prediction"
 
@@ -58,7 +75,6 @@ class FewShotSession:
     # DataLoader settings
     batch_size: int = 1024
     num_workers: int = 0
-    vectorize: bool = True
     skip_failures: bool = True
 
     # Session state
@@ -68,7 +84,6 @@ class FewShotSession:
 
     # Subset sampling settings
     working_subset_size: int = 0  # 0 means no limit (use all samples)
-    use_full_dataset: bool = False  # False = sample from current view; True = ignore view
     randomize_subset: bool = False  # Re-sample each iteration
     subset_ids: list[str] = field(
         default_factory=list
@@ -131,24 +146,25 @@ class FewShotLearningPanel(foo.Panel):
             hyperparams = _get("model_hyperparams", {})
             if isinstance(hyperparams, str):
                 try:
-                    hyperparams = json.loads(hyperparams) if hyperparams else {}
+                    hyperparams = (
+                        json.loads(hyperparams) if hyperparams else {}
+                    )
                 except json.JSONDecodeError:
                     hyperparams = {}
 
             return FewShotSession(
+                embedding_model=_get("embedding_model", "ResNet18"),
                 embedding_field=_get("embedding_field", "resnet18_embeddings"),
                 label_field=_get("label_field", "fewshot_prediction"),
                 model_name=_get("model_name", "RocchioPrototypeModel"),
                 model_hyperparams=hyperparams,
                 batch_size=int(_get("batch_size", 1024)),
                 num_workers=int(_get("num_workers", 0)),
-                vectorize=bool(_get("vectorize", True)),
                 skip_failures=bool(_get("skip_failures", True)),
                 positive_ids=list(_get("positive_ids", [])),
                 negative_ids=list(_get("negative_ids", [])),
                 iteration=int(_get("iteration", 0)),
                 working_subset_size=int(_get("working_subset_size", 0)),
-                use_full_dataset=bool(_get("use_full_dataset", False)),
                 randomize_subset=bool(_get("randomize_subset", False)),
                 subset_ids=list(_get("subset_ids", [])),
             )
@@ -158,19 +174,18 @@ class FewShotLearningPanel(foo.Panel):
     def _save_session(self, ctx: Any, session: FewShotSession) -> None:
         """Save session to panel state."""
         ctx.panel.state.session = {
+            "embedding_model": session.embedding_model,
             "embedding_field": session.embedding_field,
             "label_field": session.label_field,
             "model_name": session.model_name,
             "model_hyperparams": session.model_hyperparams,
             "batch_size": session.batch_size,
             "num_workers": session.num_workers,
-            "vectorize": session.vectorize,
             "skip_failures": session.skip_failures,
             "positive_ids": session.positive_ids,
             "negative_ids": session.negative_ids,
             "iteration": session.iteration,
             "working_subset_size": session.working_subset_size,
-            "use_full_dataset": session.use_full_dataset,
             "randomize_subset": session.randomize_subset,
             "subset_ids": session.subset_ids,
         }
@@ -179,20 +194,23 @@ class FewShotLearningPanel(foo.Panel):
         """Clear session from panel state."""
         ctx.panel.state.session = None
 
-    def _get_embedding_fields(self, ctx: Any) -> list[str]:
-        """Get list of embedding fields in dataset."""
-        fields: list[str] = []
-        schema = ctx.dataset.get_field_schema()
-        for name, field_obj in schema.items():
-            if hasattr(field_obj, "document_type"):
-                continue
-            if name.endswith("_embeddings") or "embedding" in name.lower():
-                fields.append(name)
-        if not fields:
-            fields.append("resnet18_embeddings")
-        return fields
+    def on_change_embedding_model(self, ctx: Any) -> None:
+        """Update embedding field name when model changes."""
+        model = (
+            ctx.params.get("value")
+            or getattr(ctx.panel.state, "embedding_model", None)
+            or "ResNet18"
+        )
+        current_field = getattr(ctx.panel.state, "embedding_field", None) or ""
+        known_defaults = set(EMBEDDING_FIELD_DEFAULTS.values())
+        if not current_field or current_field in known_defaults:
+            ctx.panel.state.embedding_field = EMBEDDING_FIELD_DEFAULTS.get(
+                model, "embeddings"
+            )
 
-    def _render_hyperparams(self, panel: types.Object, model_name: str) -> None:
+    def _render_hyperparams(
+        self, panel: types.Object, model_name: str
+    ) -> None:
         """Render individual hyperparameter fields for the selected model."""
         schema = MODEL_HYPERPARAMS.get(model_name, {})
 
@@ -242,7 +260,9 @@ class FewShotLearningPanel(foo.Panel):
                     description=description,
                 )
 
-    def _collect_hyperparams(self, ctx: Any, model_name: str) -> dict[str, Any]:
+    def _collect_hyperparams(
+        self, ctx: Any, model_name: str
+    ) -> dict[str, Any]:
         """Collect hyperparameter values from panel state."""
         schema = MODEL_HYPERPARAMS.get(model_name, {})
         hyperparams: dict[str, Any] = {}
@@ -259,120 +279,116 @@ class FewShotLearningPanel(foo.Panel):
 
         return hyperparams
 
-    def _ensure_embeddings(self, ctx: Any, field_name: str) -> None:
-        """Compute embeddings if they don't exist."""
+    def _ensure_embeddings(
+        self, ctx: Any, view: Any, field_name: str, zoo_model_name: str
+    ) -> int:
+        """Compute missing embeddings. Returns number of samples computed."""
+        need_compute = view.exists(field_name, False)
+        count = len(need_compute)
+        if count == 0:
+            return 0
+
+        ctx.ops.notify(
+            f"Computing {field_name} for {count} samples...",
+            variant="info",
+        )
+        try:
+            model = foz.load_zoo_model(zoo_model_name)
+            # Redirect stdout: FiftyOne's compute_embeddings uses an ETA
+            # progress bar that writes to sys.stdout, which may be closed
+            # in the operator thread-pool context.
+            with contextlib.redirect_stdout(io.StringIO()):
+                need_compute.compute_embeddings(
+                    model,
+                    embeddings_field=field_name,
+                    batch_size=32,
+                    num_workers=4,
+                    skip_failures=True,
+                )
+        except Exception as e:
+            ctx.ops.notify(
+                f"Failed to compute embeddings in '{field_name}': {e}",
+                variant="error",
+            )
+            raise
+        return count
+
+    def _check_embedding_dimension(
+        self, ctx: Any, field_name: str, embedding_model: str
+    ) -> bool:
+        """Return False and notify if existing embeddings have wrong dim."""
+        expected_dim = EMBEDDING_DIMENSIONS.get(embedding_model)
+        if not expected_dim:
+            return True
+
         schema = ctx.dataset.get_field_schema()
         if field_name not in schema:
-            ctx.ops.notify(
-                f"Computing {field_name}... This may take a while.",
-            )
-            model = foz.load_zoo_model("resnet18-imagenet-torch")
-            ctx.dataset.compute_embeddings(
-                model,
-                embeddings_field=field_name,
-                batch_size=32,
-                num_workers=4,
-                skip_failures=True,
-            )
-            ctx.ops.notify(
-                f"Embeddings computed in field '{field_name}'!",
-                variant="success",
-            )
+            return True
+
+        sample_view = ctx.dataset.exists(field_name).limit(20)
+        if len(sample_view) == 0:
+            return True
+
+        for sample in sample_view:
+            emb = sample[field_name]
+            if emb is not None:
+                actual_dim = np.asarray(emb).shape[-1]
+                if actual_dim != expected_dim:
+                    ctx.ops.notify(
+                        f"Field '{field_name}' has dimension {actual_dim} "
+                        f"but {embedding_model} expects {expected_dim}. "
+                        f"Choose a different field name or matching model.",
+                        variant="error",
+                    )
+                    return False
+        return True
 
     def _get_inference_view(
         self, ctx: Any, session: FewShotSession
     ) -> tuple[Any, int]:
-        """Get the view to use for inference, applying subset sampling if configured.
+        """Get the view to use for inference, applying subset sampling.
 
-        Samples from:
-        - ctx.view (current view with filters/slices) if use_full_dataset=False
-        - ctx.dataset (full dataset) if use_full_dataset=True
+        Samples from ctx.view (respects filters/slices). When subset
+        sampling is active, labeled samples are always included even if
+        outside the current view.
 
         Returns (view, count) tuple.
         """
         import random
 
-        # Determine source: current view or full dataset
-        source = ctx.dataset if session.use_full_dataset else ctx.view
+        source = ctx.view
 
-        # No subset limit - use full source
+        # No subset limit
         if session.working_subset_size <= 0:
             return source, len(source)
 
-        # Get all labeled IDs (must always be included)
+        # Labeled IDs always included
         labeled_ids = set(session.positive_ids + session.negative_ids)
 
-        # If not randomizing, use cached subset_ids if available
+        # Cached subset (not randomizing)
         if not session.randomize_subset and session.subset_ids:
-            # Use cached subset + ensure labeled samples are included
             subset_ids = set(session.subset_ids) | labeled_ids
             return ctx.dataset.select(list(subset_ids)), len(subset_ids)
 
-        # Need to sample: get IDs from source (respects current view filters)
+        # Sample unlabeled from current view
         source_ids = set(source.values("id"))
         unlabeled_ids = list(source_ids - labeled_ids)
 
-        # Calculate how many unlabeled samples to include
-        unlabeled_limit = max(0, session.working_subset_size - len(labeled_ids))
+        unlabeled_limit = max(
+            0, session.working_subset_size - len(labeled_ids)
+        )
 
-        # Sample unlabeled IDs
         if len(unlabeled_ids) <= unlabeled_limit:
             sampled_unlabeled = unlabeled_ids
         else:
             sampled_unlabeled = random.sample(unlabeled_ids, unlabeled_limit)
 
-        # Combine labeled + sampled unlabeled
         subset_ids = list(labeled_ids) + sampled_unlabeled
 
-        # Cache if not randomizing each iteration
         if not session.randomize_subset:
             session.subset_ids = subset_ids
 
         return ctx.dataset.select(subset_ids), len(subset_ids)
-
-    def compute_embeddings(self, ctx: Any) -> None:
-        """Compute embeddings using selected zoo model."""
-        model_key = getattr(ctx.panel.state, "compute_model", None) or "ResNet18"
-        field_name = getattr(ctx.panel.state, "compute_field_name", None) or ""
-
-        if not field_name:
-            ctx.ops.notify(
-                "Please enter a field name for embeddings", variant="warning"
-            )
-            return
-
-        zoo_model_name = EMBEDDING_ZOO_MODELS.get(model_key)
-        if not zoo_model_name:
-            ctx.ops.notify(f"Unknown model: {model_key}", variant="error")
-            return
-
-        # Check if field already exists
-        schema = ctx.dataset.get_field_schema()
-        if field_name in schema:
-            ctx.ops.notify(
-                f"Field '{field_name}' already exists. Choose a different name.",
-                variant="warning",
-            )
-            return
-
-        ctx.ops.notify(
-            f"Computing {model_key} embeddings... This may take a while.",
-            variant="info",
-        )
-
-        model = foz.load_zoo_model(zoo_model_name)
-        ctx.dataset.compute_embeddings(
-            model,
-            embeddings_field=field_name,
-            batch_size=32,
-            num_workers=4,
-            skip_failures=True,
-        )
-
-        ctx.ops.notify(
-            f"Embeddings computed and stored in '{field_name}'!",
-            variant="success",
-        )
 
     def on_load(self, ctx: Any) -> None:
         """Initialize panel state."""
@@ -389,48 +405,64 @@ class FewShotLearningPanel(foo.Panel):
 
     def start_session(self, ctx: Any) -> None:
         """Start a new few-shot learning session."""
-        embedding_field = (
-            getattr(ctx.panel.state, "embedding_field", None)
-            or "resnet18_embeddings"
+        embedding_model = (
+            getattr(ctx.panel.state, "embedding_model", None) or "ResNet18"
         )
+        embedding_field = getattr(
+            ctx.panel.state, "embedding_field", None
+        ) or EMBEDDING_FIELD_DEFAULTS.get(embedding_model, "embeddings")
         model_name = (
-            getattr(ctx.panel.state, "model_name", None) or "RocchioPrototypeModel"
+            getattr(ctx.panel.state, "model_name", None)
+            or "RocchioPrototypeModel"
         )
         batch_size = getattr(ctx.panel.state, "batch_size", None) or 1024
         num_workers = getattr(ctx.panel.state, "num_workers", None) or 0
-        vectorize = getattr(ctx.panel.state, "vectorize", True)
         skip_failures = getattr(ctx.panel.state, "skip_failures", True)
 
         # Subset sampling settings
         working_subset_size = (
             getattr(ctx.panel.state, "working_subset_size", None) or 0
         )
-        use_full_dataset = getattr(ctx.panel.state, "use_full_dataset", False)
         randomize_subset = getattr(ctx.panel.state, "randomize_subset", False)
 
         # Collect hyperparams from individual fields
         hyperparams = self._collect_hyperparams(ctx, model_name)
 
-        self._ensure_embeddings(ctx, embedding_field)
+        # Check dimension compatibility before computing
+        if not self._check_embedding_dimension(
+            ctx, embedding_field, embedding_model
+        ):
+            return
 
         session = FewShotSession(
+            embedding_model=embedding_model,
             embedding_field=embedding_field,
             label_field="fewshot_prediction",
             model_name=model_name,
             model_hyperparams=hyperparams,
             batch_size=int(batch_size),
             num_workers=int(num_workers),
-            vectorize=bool(vectorize),
             skip_failures=bool(skip_failures),
             working_subset_size=int(working_subset_size),
-            use_full_dataset=bool(use_full_dataset),
             randomize_subset=bool(randomize_subset),
         )
-        self._save_session(ctx, session)
-        ctx.ops.notify(
-            f"Session started with {model_name}! Select samples and label them.",
-            variant="success",
+
+        # Compute embeddings for inference view
+        inference_view, _ = self._get_inference_view(ctx, session)
+        zoo_model_name = EMBEDDING_ZOO_MODELS[embedding_model]
+        computed = self._ensure_embeddings(
+            ctx, inference_view, embedding_field, zoo_model_name
         )
+
+        self._save_session(ctx, session)
+
+        msg = (
+            f"Session started with {model_name}! "
+            f"Select samples and label them."
+        )
+        if computed > 0:
+            msg += f" Computed embeddings for {computed} samples."
+        ctx.ops.notify(msg, variant="success")
 
     def label_positive(self, ctx: Any) -> None:
         """Label selected samples as positive."""
@@ -489,21 +521,52 @@ class FewShotLearningPanel(foo.Panel):
         # Read current subset settings from UI (may have changed mid-session)
         ui_subset_size = getattr(ctx.panel.state, "working_subset_size", None)
         if ui_subset_size is not None:
-            session.working_subset_size = int(ui_subset_size)
-        ui_use_full = getattr(ctx.panel.state, "use_full_dataset", None)
-        if ui_use_full is not None:
-            session.use_full_dataset = bool(ui_use_full)
+            new_size = int(ui_subset_size)
+            if new_size != session.working_subset_size:
+                session.subset_ids = []
+            session.working_subset_size = new_size
         ui_randomize = getattr(ctx.panel.state, "randomize_subset", None)
         if ui_randomize is not None:
-            session.randomize_subset = bool(ui_randomize)
+            new_randomize = bool(ui_randomize)
+            if new_randomize != session.randomize_subset:
+                session.subset_ids = []
+            session.randomize_subset = new_randomize
 
         ctx.ops.notify(f"Training {session.model_name}...", variant="info")
 
         # Create model from local few-shot model factory
         model = get_model(session.model_name, session.model_hyperparams)
 
-        # Get inference view (possibly subset)
-        inference_view, inference_count = self._get_inference_view(ctx, session)
+        # Ensure embeddings for labeled samples and inference view
+        zoo_model_name = EMBEDDING_ZOO_MODELS.get(
+            session.embedding_model, "resnet18-imagenet-torch"
+        )
+        computed = 0
+
+        labeled_ids = session.positive_ids + session.negative_ids
+        if labeled_ids:
+            labeled_view = ctx.dataset.select(labeled_ids)
+            computed += self._ensure_embeddings(
+                ctx, labeled_view, session.embedding_field, zoo_model_name
+            )
+
+        # Get inference view (possibly subset).
+        # Materialize to ID-based select so the view survives field
+        # deletion later (ctx.view may be lazily filtered on the
+        # prediction field which we delete before running inference).
+        inference_view, inference_count = self._get_inference_view(
+            ctx, session
+        )
+        inference_view = ctx.dataset.select(inference_view.values("id"))
+        computed += self._ensure_embeddings(
+            ctx, inference_view, session.embedding_field, zoo_model_name
+        )
+
+        if computed > 0:
+            ctx.ops.notify(
+                f"Computed embeddings for {computed} new samples",
+                variant="success",
+            )
 
         # Train on labeled subset
         pos_view = ctx.dataset.select(session.positive_ids)
@@ -538,7 +601,7 @@ class FewShotLearningPanel(foo.Panel):
 
         torch_dataset = inference_view.to_torch(
             get_item,
-            vectorize=session.vectorize,
+            vectorize=True,
             skip_failures=session.skip_failures,
         )
         dataloader = DataLoader(
@@ -616,7 +679,7 @@ class FewShotLearningPanel(foo.Panel):
             ctx.ops.notify("No negatives labeled yet", variant="info")
 
     def view_predictions(self, ctx: Any) -> None:
-        """Show samples predicted as positive by the model."""
+        """Show all predicted samples sorted by label (positive first)."""
         session = self._get_session(ctx)
         if not session:
             ctx.ops.notify("No active session", variant="error")
@@ -629,10 +692,8 @@ class FewShotLearningPanel(foo.Panel):
             )
             return
 
-        from fiftyone import ViewField as F
-
-        view = ctx.dataset.match(F(f"{session.label_field}.label") == "positive")
-        view = view.sort_by(f"{session.label_field}.confidence", reverse=True)
+        view = ctx.dataset.exists(session.label_field)
+        view = view.sort_by(f"{session.label_field}.label", reverse=True)
         ctx.ops.set_view(view)
 
     def view_all(self, ctx: Any) -> None:
@@ -685,48 +746,32 @@ class FewShotLearningPanel(foo.Panel):
                 "5. Review predictions and iterate"
             )
 
-            # Compute Embeddings section
-            panel.md("---\n**Compute Embeddings:**")
+            # Embedding setup
+            panel.md("---\n**Embeddings:**")
 
-            # Embedding model selection dropdown
-            compute_dropdown = types.DropdownView()
+            selected_emb_model = (
+                getattr(ctx.panel.state, "embedding_model", None) or "ResNet18"
+            )
+
+            emb_model_dropdown = types.DropdownView()
             for display_name in EMBEDDING_ZOO_MODELS.keys():
-                compute_dropdown.add_choice(display_name, label=display_name)
+                emb_model_dropdown.add_choice(display_name, label=display_name)
             panel.str(
-                "compute_model",
+                "embedding_model",
                 label="Embedding Model",
-                view=compute_dropdown,
+                view=emb_model_dropdown,
                 default="ResNet18",
+                on_change=self.on_change_embedding_model,
             )
 
-            # Field name input
-            panel.str(
-                "compute_field_name",
-                label="Field Name",
-                default="",
-                description="Name for the new embeddings field (e.g., resnet50_embeddings)",
-            )
-
-            # Compute button
-            panel.btn(
-                "compute_embeddings",
-                label="Compute Embeddings",
-                on_click=self.compute_embeddings,
-                variant="outlined",
-            )
-
-            panel.md("---")
-
-            # Embedding field dropdown
-            fields = self._get_embedding_fields(ctx)
-            emb_dropdown = types.DropdownView()
-            for f in fields:
-                emb_dropdown.add_choice(f, label=f)
             panel.str(
                 "embedding_field",
                 label="Embedding Field",
-                view=emb_dropdown,
-                default=fields[0] if fields else "resnet18_embeddings",
+                default=EMBEDDING_FIELD_DEFAULTS.get(
+                    selected_emb_model, "resnet18_embeddings"
+                ),
+                description="Field name for embeddings "
+                "(computed automatically if missing)",
             )
 
             # Model selection dropdown
@@ -742,11 +787,12 @@ class FewShotLearningPanel(foo.Panel):
 
             # Dynamic model hyperparameters based on selected model
             selected_model = (
-                getattr(ctx.panel.state, "model_name", None) or "RocchioPrototypeModel"
+                getattr(ctx.panel.state, "model_name", None)
+                or "RocchioPrototypeModel"
             )
             self._render_hyperparams(panel, selected_model)
 
-            # Advanced settings (collapsed by default)
+            # Advanced settings
             panel.md("---\n**Advanced Settings:**")
 
             panel.int(
@@ -759,13 +805,8 @@ class FewShotLearningPanel(foo.Panel):
                 "num_workers",
                 label="Num Workers",
                 default=0,
-                description="Number of DataLoader workers (0 for main thread)",
-            )
-            panel.bool(
-                "vectorize",
-                label="Vectorize",
-                default=True,
-                description="Use vectorized field extraction",
+                description="Number of DataLoader workers "
+                "(0 for main thread)",
             )
             panel.bool(
                 "skip_failures",
@@ -781,15 +822,9 @@ class FewShotLearningPanel(foo.Panel):
                 "working_subset_size",
                 label="Working Subset Size",
                 default=0,
-                description="Limit inference to N samples (0 = no limit). "
+                description="Limit inference to N samples "
+                "(0 = no limit). "
                 "Labeled samples are always included.",
-            )
-            panel.bool(
-                "use_full_dataset",
-                label="Use Full Dataset",
-                default=False,
-                description="Sample from full dataset instead of current view "
-                "(ignores filters/slices)",
             )
             panel.bool(
                 "randomize_subset",
@@ -844,13 +879,7 @@ class FewShotLearningPanel(foo.Panel):
                 "working_subset_size",
                 label="Working Subset Size",
                 default=session.working_subset_size,
-                description="Limit inference to N samples (0 = no limit)",
-            )
-            panel.bool(
-                "use_full_dataset",
-                label="Use Full Dataset",
-                default=session.use_full_dataset,
-                description="Sample from full dataset instead of current view",
+                description="Limit inference to N samples " "(0 = no limit)",
             )
             panel.bool(
                 "randomize_subset",
@@ -860,10 +889,16 @@ class FewShotLearningPanel(foo.Panel):
             )
 
             panel.md("---\n**View:**")
-            panel.btn("view_pos", label="Positives", on_click=self.view_positives)
-            panel.btn("view_neg", label="Negatives", on_click=self.view_negatives)
             panel.btn(
-                "view_pred", label="Predictions", on_click=self.view_predictions
+                "view_pos", label="Positives", on_click=self.view_positives
+            )
+            panel.btn(
+                "view_neg", label="Negatives", on_click=self.view_negatives
+            )
+            panel.btn(
+                "view_pred",
+                label="Predictions",
+                on_click=self.view_predictions,
             )
             panel.btn("view_all", label="All Samples", on_click=self.view_all)
 

@@ -11,8 +11,8 @@ Interactive few-shot learning panel for FiftyOne that lets you train classifiers
 
 ## Supported Models
 
-| Model | Description | Best For |
-|-------|-------------|----------|
+| Model                     | Description                         | Best For                     |
+| ------------------------- | ----------------------------------- | ---------------------------- |
 | **RocchioPrototypeModel** | Centroid-based prototype classifier | Balanced data, interpretable |
 
 ## Prerequisites
@@ -59,9 +59,9 @@ python plugins/few_shot_learning/run_demo.py
 
 ## Configuration
 
-### Embedding Field
+### Embeddings
 
-The plugin works with any embedding field in your dataset. If the selected field doesn't exist, it will compute ResNet-18 embeddings automatically.
+Select an **Embedding Model** (ResNet18, ResNet50, CLIP, DINOv2) and an **Embedding Field** name. The field name updates automatically when you change the model, but you can also set a custom name. Embeddings are computed automatically for any samples that don't already have them.
 
 ### Model Hyperparameters
 
@@ -73,5 +73,4 @@ Model hyperparameters are configured directly in the panel UI for the selected m
 
 - **Batch Size**: Number of samples per inference batch (default: 1024)
 - **Num Workers**: DataLoader workers for parallel loading (default: 0)
-- **Vectorize**: Use vectorized field extraction (default: true)
 - **Skip Failures**: Skip samples that fail to load (default: true)
