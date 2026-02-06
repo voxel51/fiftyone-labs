@@ -1,0 +1,55 @@
+{
+  "name": "@51labs/click_segmentation",
+  "version": "1.0.0",
+  "description": "FiftyOne Labs panel for image segmentation via point prompts",
+  "type": "module",
+  "main": "src/ClickSegmentationPlugin.tsx",
+  "fiftyone": {
+    "script": "dist/index.umd.js"
+  },
+  "scripts": {
+    "dev": "nodemon --watch ./src --ext js,jsx,ts,tsx --exec 'yarn build'",
+    "build": "vite build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/voxel51/labs/tree/main/plugins/click_segmentation"
+  },
+  "author": "Voxel51, Inc.",
+  "license": "MIT",
+  "dependencies": {
+    "@fiftyone/components": "portal:../../../fiftyone/app/packages/components",
+    "@fiftyone/looker": "portal:../../../fiftyone/app/packages/looker",
+    "@fiftyone/operators": "portal:../../../fiftyone/app/packages/operators",
+    "@fiftyone/plugins": "portal:../../../fiftyone/app/packages/plugins",
+    "@fiftyone/relay": "portal:../../../fiftyone/app/packages/relay",
+    "@fiftyone/state": "portal:../../../fiftyone/app/packages/state",
+    "@fiftyone/utilities": "portal:../../../fiftyone/app/packages/utilities",
+    "lodash": "^4.17.21",
+    "motion": "^11.11.17",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recoil": "^0.7.7",
+    "styled-components": "6.1.13"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.3.0",
+    "@types/lodash": "^4.17.13",
+    "@types/node": "^22.7.6",
+    "@vitejs/plugin-react": "^4.3.2",
+    "@voxel51/fiftyone-js-plugin-build": "^2.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.9",
+    "vite-plugin-externalize-deps": "^0.8.0"
+  },
+  "resolutions": {
+    "@fiftyone/utilities": "portal:../../../fiftyone/app/packages/utilities",
+    "@fiftyone/state": "portal:../../../fiftyone/app/packages/state",
+    "@fiftyone/looker": "portal:../../../fiftyone/app/packages/looker",
+    "@fiftyone/components": "portal:../../../fiftyone/app/packages/components",
+    "@fiftyone/relay": "portal:../../../fiftyone/app/packages/relay",
+    "@fiftyone/operators": "portal:../../../fiftyone/app/packages/operators",
+    "@fiftyone/plugins": "portal:../../../fiftyone/app/packages/plugins"
+  },
+  "packageManager": "yarn@4.5.0"
+}
