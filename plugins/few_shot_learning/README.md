@@ -4,7 +4,7 @@ Interactive few-shot learning panel for FiftyOne that lets you train classifiers
 
 ## Features
 
-- **Multiple model types**: Choose from 5 different classifiers
+- **Extensible model architecture**: Dropdown-based model selection supports adding new classifiers
 - **Interactive labeling**: Select samples in the grid and label them with one click
 - **Iterative refinement**: Train, review predictions, add more labels, repeat
 - **Fast inference**: Uses PyTorch DataLoaders for efficient batch processing
@@ -13,19 +13,13 @@ Interactive few-shot learning panel for FiftyOne that lets you train classifiers
 
 | Model | Description | Best For |
 |-------|-------------|----------|
-| **LinearSVMModel** | Fast linear SVM classifier | General use, large datasets |
 | **RocchioPrototypeModel** | Centroid-based prototype classifier | Balanced data, interpretable |
-| **NCAMetricLearningModel** | Neighborhood Component Analysis | Learning distance metrics |
-| **LMNNMetricLearningModel** | Large Margin Nearest Neighbor | Margin-based metric learning |
-| **GraphLabelPropagationModel** | Semi-supervised label propagation | Using unlabeled data structure |
 
 ## Prerequisites
 
 The plugin ships with self-contained model implementations. Required Python dependencies are:
 
 - `numpy`
-- `scikit-learn`
-- `torch`
 
 ## Installation
 
@@ -61,8 +55,7 @@ python plugins/few_shot_learning/run_demo.py
 
 - Start with clear examples: Label the most obvious positive and negative samples first
 - Use **View Predictions** to find high-confidence predictions to verify
-- The **GraphLabelPropagationModel** works well when you have few labels but want to leverage the structure of your data
-- Use **Model Hyperparameters** to tune model behavior (e.g., `{"C": 0.1}` for LinearSVM)
+- Use **Model Hyperparameters** to tune model behavior
 
 ## Configuration
 
@@ -74,11 +67,7 @@ The plugin works with any embedding field in your dataset. If the selected field
 
 Model hyperparameters are configured directly in the panel UI for the selected model:
 
-- **LinearSVMModel**: `C`, `max_iter`
 - **RocchioPrototypeModel**: `mode`, `beta`, `gamma`, `temperature`
-- **NCAMetricLearningModel**: `n_components`, `max_iter`
-- **LMNNMetricLearningModel**: `n_components`, `k`, `max_iter`, `learning_rate`
-- **GraphLabelPropagationModel**: `n_neighbors`, `alpha`, `max_iter`
 
 ### Advanced Settings
 

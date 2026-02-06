@@ -14,11 +14,7 @@ from .models import get_model
 
 # Supported classification models for few-shot learning
 SUPPORTED_MODELS = [
-    "LinearSVMModel",
     "RocchioPrototypeModel",
-    "NCAMetricLearningModel",
-    "LMNNMetricLearningModel",
-    "GraphLabelPropagationModel",
 ]
 
 # Embedding models available from the FiftyOne model zoo
@@ -32,10 +28,6 @@ EMBEDDING_ZOO_MODELS = {
 # Model hyperparameters schema: name -> {param: (default, description, type, [choices])}
 # type: "int", "float", "str", "choice"
 MODEL_HYPERPARAMS = {
-    "LinearSVMModel": {
-        "C": (1.0, "Regularization parameter", "float"),
-        "max_iter": (10000, "Max solver iterations", "int"),
-    },
     "RocchioPrototypeModel": {
         "mode": (
             "proto_softmax",
@@ -46,21 +38,6 @@ MODEL_HYPERPARAMS = {
         "beta": (1.0, "Weight for positive centroid", "float"),
         "gamma": (1.0, "Weight for negative centroid", "float"),
         "temperature": (1.0, "Temperature for softmax/sigmoid", "float"),
-    },
-    "NCAMetricLearningModel": {
-        "n_components": (64, "Output embedding dimensionality", "int"),
-        "max_iter": (100, "Max optimization iterations", "int"),
-    },
-    "LMNNMetricLearningModel": {
-        "n_components": (64, "Output embedding dimensionality", "int"),
-        "k": (3, "Target neighbors per sample", "int"),
-        "max_iter": (200, "Optimization iterations", "int"),
-        "learning_rate": (0.01, "Optimizer learning rate", "float"),
-    },
-    "GraphLabelPropagationModel": {
-        "n_neighbors": (30, "Number of neighbors for graph", "int"),
-        "alpha": (0.2, "Clamping factor (label_spreading)", "float"),
-        "max_iter": (30, "Max propagation iterations", "int"),
     },
 }
 
@@ -75,7 +52,7 @@ class FewShotSession:
     label_field: str = "fewshot_prediction"
 
     # Model configuration
-    model_name: str = "LinearSVMModel"
+    model_name: str = "RocchioPrototypeModel"
     model_hyperparams: dict[str, Any] = field(default_factory=dict)
 
     # DataLoader settings
@@ -161,7 +138,7 @@ class FewShotLearningPanel(foo.Panel):
             return FewShotSession(
                 embedding_field=_get("embedding_field", "resnet18_embeddings"),
                 label_field=_get("label_field", "fewshot_prediction"),
-                model_name=_get("model_name", "LinearSVMModel"),
+                model_name=_get("model_name", "RocchioPrototypeModel"),
                 model_hyperparams=hyperparams,
                 batch_size=int(_get("batch_size", 1024)),
                 num_workers=int(_get("num_workers", 0)),
@@ -417,7 +394,7 @@ class FewShotLearningPanel(foo.Panel):
             or "resnet18_embeddings"
         )
         model_name = (
-            getattr(ctx.panel.state, "model_name", None) or "LinearSVMModel"
+            getattr(ctx.panel.state, "model_name", None) or "RocchioPrototypeModel"
         )
         batch_size = getattr(ctx.panel.state, "batch_size", None) or 1024
         num_workers = getattr(ctx.panel.state, "num_workers", None) or 0
@@ -525,60 +502,21 @@ class FewShotLearningPanel(foo.Panel):
         # Create model from local few-shot model factory
         model = get_model(session.model_name, session.model_hyperparams)
 
-        # Check if model is GraphLabelPropagationModel (transductive)
-        # Use model_name since the attribute may not be set on the class
-        is_transductive = session.model_name == "GraphLabelPropagationModel"
-
         # Get inference view (possibly subset)
         inference_view, inference_count = self._get_inference_view(ctx, session)
 
-        if is_transductive:
-            # GraphLabelPropagationModel: train on inference view with transductive labels
-            # Labels: 1 for positive, 0 for negative, -1 for unlabeled
-            # IMPORTANT: Normalize all IDs to strings for consistent comparison
-            all_ids_raw = list(inference_view.values("id"))
-            all_ids = [str(sid) for sid in all_ids_raw]
-            all_embeddings = np.array(
-                inference_view.values(session.embedding_field)
-            )
+        # Train on labeled subset
+        pos_view = ctx.dataset.select(session.positive_ids)
+        neg_view = ctx.dataset.select(session.negative_ids)
 
-            # session.positive_ids/negative_ids are already strings from the UI
-            pos_set = set(str(sid) for sid in session.positive_ids)
-            neg_set = set(str(sid) for sid in session.negative_ids)
+        pos_emb = np.array(pos_view.values(session.embedding_field))
+        neg_emb = np.array(neg_view.values(session.embedding_field))
 
-            labels = []
-            for sample_id in all_ids:
-                if sample_id in pos_set:
-                    labels.append(1)
-                elif sample_id in neg_set:
-                    labels.append(0)
-                else:
-                    labels.append(-1)  # Unlabeled
+        embeddings = np.vstack([pos_emb, neg_emb])
+        labels = np.array([1] * len(pos_emb) + [0] * len(neg_emb))
 
-            labels = np.array(labels)
-            model.fit_step(
-                [
-                    {
-                        "embeddings": all_embeddings,
-                        "labels": labels,
-                        "ids": all_ids,
-                    }
-                ]
-            )
-            train_count = len(session.positive_ids) + len(session.negative_ids)
-        else:
-            # Standard models: train only on labeled subset
-            pos_view = ctx.dataset.select(session.positive_ids)
-            neg_view = ctx.dataset.select(session.negative_ids)
-
-            pos_emb = np.array(pos_view.values(session.embedding_field))
-            neg_emb = np.array(neg_view.values(session.embedding_field))
-
-            embeddings = np.vstack([pos_emb, neg_emb])
-            labels = np.array([1] * len(pos_emb) + [0] * len(neg_emb))
-
-            model.fit_step([{"embeddings": embeddings, "labels": labels}])
-            train_count = len(embeddings)
+        model.fit_step([{"embeddings": embeddings, "labels": labels}])
+        train_count = len(embeddings)
 
         # Build output processor for LinearSVMModel (has one)
         if hasattr(model, "build_output_processor"):
@@ -622,10 +560,6 @@ class FewShotLearningPanel(foo.Panel):
 
             # Prepare batch for model (remove ids, keep embeddings)
             model_batch = {"embeddings": batch["embeddings"].numpy()}
-
-            # Add ids for transductive models (GraphLabelPropagationModel uses them for lookup)
-            if is_transductive:
-                model_batch["ids"] = sample_ids
 
             # Run prediction
             output = model.predict(model_batch)
@@ -803,12 +737,12 @@ class FewShotLearningPanel(foo.Panel):
                 "model_name",
                 label="Model",
                 view=model_dropdown,
-                default="LinearSVMModel",
+                default="RocchioPrototypeModel",
             )
 
             # Dynamic model hyperparameters based on selected model
             selected_model = (
-                getattr(ctx.panel.state, "model_name", None) or "LinearSVMModel"
+                getattr(ctx.panel.state, "model_name", None) or "RocchioPrototypeModel"
             )
             self._render_hyperparams(panel, selected_model)
 
