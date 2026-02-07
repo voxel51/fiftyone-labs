@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import io
 import json
+import uuid
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -56,17 +57,15 @@ MODEL_HYPERPARAMS = {
         "beta": (1.0, "Weight for positive centroid", "float"),
         "gamma": (1.0, "Weight for negative centroid", "float"),
         "temperature": (1.0, "Temperature for softmax/sigmoid", "float"),
+        "normalize_embeddings": (
+            True,
+            "L2-normalize embeddings before scoring",
+            "bool",
+        ),
     },
 }
 
 from .utils import EmbeddingsGetItem, collate_fn, extract_probability
-
-
-def _l2_normalize(x: np.ndarray) -> np.ndarray:
-    """L2-normalize rows in-place. Zero vectors are left unchanged."""
-    norms = np.linalg.norm(x, axis=1, keepdims=True)
-    norms = np.maximum(norms, 1e-12)
-    return x / norms
 
 
 def _view_fingerprint(ids: list[str]) -> str:
@@ -96,6 +95,8 @@ class FewShotSession:
     positive_ids: list[str] = field(default_factory=list)
     negative_ids: list[str] = field(default_factory=list)
     iteration: int = 0
+    train_positive_field: str = "train_positive"
+    train_negative_field: str = "train_negative"
 
     # Subset sampling settings
     working_subset_size: int = 0  # 0 means no limit (use all samples)
@@ -180,6 +181,12 @@ class FewShotLearningPanel(foo.Panel):
                 positive_ids=list(_get("positive_ids", [])),
                 negative_ids=list(_get("negative_ids", [])),
                 iteration=int(_get("iteration", 0)),
+                train_positive_field=str(
+                    _get("train_positive_field", "train_positive")
+                ),
+                train_negative_field=str(
+                    _get("train_negative_field", "train_negative")
+                ),
                 working_subset_size=int(_get("working_subset_size", 0)),
                 randomize_subset=bool(_get("randomize_subset", False)),
                 subset_ids=list(_get("subset_ids", [])),
@@ -204,6 +211,8 @@ class FewShotLearningPanel(foo.Panel):
             "positive_ids": session.positive_ids,
             "negative_ids": session.negative_ids,
             "iteration": session.iteration,
+            "train_positive_field": session.train_positive_field,
+            "train_negative_field": session.train_negative_field,
             "working_subset_size": session.working_subset_size,
             "randomize_subset": session.randomize_subset,
             "subset_ids": session.subset_ids,
@@ -255,6 +264,13 @@ class FewShotLearningPanel(foo.Panel):
                 )
             elif field_type == "float":
                 panel.float(
+                    field_key,
+                    label=param_name,
+                    default=default_val,
+                    description=description,
+                )
+            elif field_type == "bool":
+                panel.bool(
                     field_key,
                     label=param_name,
                     default=default_val,
@@ -332,6 +348,18 @@ class FewShotLearningPanel(foo.Panel):
             )
             raise
         return count
+
+    def _ensure_training_label_fields(
+        self, ctx: Any, session: FewShotSession
+    ) -> None:
+        """Ensure session-scoped training label fields exist."""
+        schema = ctx.dataset.get_field_schema()
+        for field_name in (
+            session.train_positive_field,
+            session.train_negative_field,
+        ):
+            if field_name not in schema:
+                ctx.dataset.add_sample_field(field_name, fo.BooleanField)
 
     def _check_embedding_dimension(
         self, ctx: Any, field_name: str, embedding_model: str
@@ -466,15 +494,13 @@ class FewShotLearningPanel(foo.Panel):
             skip_failures=bool(skip_failures),
             working_subset_size=int(working_subset_size),
             randomize_subset=bool(randomize_subset),
+            train_positive_field=f"fewshot_train_positive_{uuid.uuid4().hex[:8]}",
+            train_negative_field=f"fewshot_train_negative_{uuid.uuid4().hex[:8]}",
         )
 
-        # Clear and (re-)create training label fields so labeling
-        # doesn't trigger schema changes (which reset the App UI).
-        schema = ctx.dataset.get_field_schema()
-        for fname in ("train_positive", "train_negative"):
-            if fname in schema:
-                ctx.dataset.delete_sample_field(fname)
-            ctx.dataset.add_sample_field(fname, fo.BooleanField)
+        # Create session-scoped training fields once per session so
+        # they are ephemeral and cleaned up by reset_session.
+        self._ensure_training_label_fields(ctx, session)
 
         # Compute embeddings for inference view
         inference_view, _ = self._get_inference_view(ctx, session)
@@ -504,14 +530,15 @@ class FewShotLearningPanel(foo.Panel):
 
         session.add_positives(selected)
         self._save_session(ctx, session)
+        self._ensure_training_label_fields(ctx, session)
 
         ctx.dataset.set_values(
-            "train_positive",
+            session.train_positive_field,
             {sid: True for sid in selected},
             key_field="id",
         )
         ctx.dataset.set_values(
-            "train_negative",
+            session.train_negative_field,
             {sid: None for sid in selected},
             key_field="id",
         )
@@ -536,14 +563,15 @@ class FewShotLearningPanel(foo.Panel):
 
         session.add_negatives(selected)
         self._save_session(ctx, session)
+        self._ensure_training_label_fields(ctx, session)
 
         ctx.dataset.set_values(
-            "train_negative",
+            session.train_negative_field,
             {sid: True for sid in selected},
             key_field="id",
         )
         ctx.dataset.set_values(
-            "train_positive",
+            session.train_positive_field,
             {sid: None for sid in selected},
             key_field="id",
         )
@@ -630,10 +658,34 @@ class FewShotLearningPanel(foo.Panel):
         pos_view = ctx.dataset.select(session.positive_ids)
         neg_view = ctx.dataset.select(session.negative_ids)
 
-        pos_emb = np.array(pos_view.values(session.embedding_field))
-        neg_emb = np.array(neg_view.values(session.embedding_field))
+        pos_emb_values = pos_view.values(session.embedding_field)
+        neg_emb_values = neg_view.values(session.embedding_field)
 
-        embeddings = _l2_normalize(np.vstack([pos_emb, neg_emb]))
+        pos_emb = np.array(
+            [emb for emb in pos_emb_values if emb is not None], dtype=np.float32
+        )
+        neg_emb = np.array(
+            [emb for emb in neg_emb_values if emb is not None], dtype=np.float32
+        )
+
+        missing_pos = len(pos_emb_values) - len(pos_emb)
+        missing_neg = len(neg_emb_values) - len(neg_emb)
+        if missing_pos > 0 or missing_neg > 0:
+            ctx.ops.notify(
+                "Some labeled samples are missing embeddings and were skipped "
+                f"(missing positives={missing_pos}, missing negatives={missing_neg})",
+                variant="warning",
+            )
+
+        if len(pos_emb) == 0 or len(neg_emb) == 0:
+            ctx.ops.notify(
+                "Training requires at least 1 positive and 1 negative sample "
+                "with valid embeddings",
+                variant="error",
+            )
+            return
+
+        embeddings = np.vstack([pos_emb, neg_emb]).astype(np.float32)
         labels = np.array([1] * len(pos_emb) + [0] * len(neg_emb))
 
         model.fit_step([{"embeddings": embeddings, "labels": labels}])
@@ -674,9 +726,9 @@ class FewShotLearningPanel(foo.Panel):
             if len(sample_ids) == 0:
                 continue
 
-            # Prepare batch for model (remove ids, normalize embeddings)
+            # Prepare batch for model (remove ids)
             model_batch = {
-                "embeddings": _l2_normalize(batch["embeddings"].numpy())
+                "embeddings": batch["embeddings"].numpy()
             }
 
             # Run prediction
@@ -694,18 +746,22 @@ class FewShotLearningPanel(foo.Panel):
                     confidence=float(confidence),
                 )
 
-        # Clear predictions for all in-scope samples first
-        # (handles skipped/failed samples — they get None, not stale labels)
-        schema = ctx.dataset.get_field_schema()
-        if session.label_field in schema:
-            inference_ids = inference_view.values("id")
-            ctx.dataset.set_values(
-                session.label_field,
-                {sid: None for sid in inference_ids},
-                key_field="id",
+        # Enforce user-provided training labels exactly on labeled IDs.
+        # This avoids contradiction between explicit training labels and
+        # displayed predictions for the same samples.
+        for sample_id in session.positive_ids:
+            predictions_map[sample_id] = fo.Classification(
+                label="positive",
+                confidence=1.0,
+            )
+        for sample_id in session.negative_ids:
+            predictions_map[sample_id] = fo.Classification(
+                label="negative",
+                confidence=1.0,
             )
 
-        # Write new predictions (only samples that succeeded)
+        # Write predictions cumulatively: update current inference outputs,
+        # keep prior predictions for samples not scored this iteration.
         ctx.dataset.set_values(
             session.label_field,
             predictions_map,
@@ -713,24 +769,20 @@ class FewShotLearningPanel(foo.Panel):
         )
 
         # Write training label fields for sidebar visibility
+        self._ensure_training_label_fields(ctx, session)
         ctx.dataset.set_values(
-            "train_positive",
+            session.train_positive_field,
             {sid: True for sid in session.positive_ids},
             key_field="id",
         )
         ctx.dataset.set_values(
-            "train_negative",
+            session.train_negative_field,
             {sid: True for sid in session.negative_ids},
             key_field="id",
         )
 
         session.iteration += 1
         self._save_session(ctx, session)
-
-        # Show predictions view (positive first)
-        view = ctx.dataset.exists(session.label_field)
-        view = view.sort_by(f"{session.label_field}.label", reverse=True)
-        ctx.ops.set_view(view)
 
         subset_info = (
             f" (subset: {inference_count})"
@@ -739,9 +791,29 @@ class FewShotLearningPanel(foo.Panel):
         )
         ctx.ops.notify(
             f"Iteration {session.iteration}: Trained on {train_count} samples, "
-            f"labeled {inference_count} samples{subset_info}",
+            f"labeled {inference_count} samples{subset_info}. "
+            f"Predictions were written to '{session.label_field}'.",
             variant="success",
         )
+
+    def view_predictions(self, ctx: Any) -> None:
+        """Set App view to predicted samples sorted positive-first."""
+        session = self._get_session(ctx)
+        if not session:
+            ctx.ops.notify("No active session", variant="error")
+            return
+
+        view = ctx.dataset.exists(session.label_field)
+        if len(view) == 0:
+            ctx.ops.notify(
+                f"No predictions found in '{session.label_field}'",
+                variant="warning",
+            )
+            return
+
+        view = view.sort_by(f"{session.label_field}.label", reverse=True)
+        ctx.ops.set_view(view)
+        ctx.ops.notify("Switched to predictions view", variant="info")
 
     def reset_session(self, ctx: Any) -> None:
         """Clear session and delete prediction/training label fields."""
@@ -750,14 +822,13 @@ class FewShotLearningPanel(foo.Panel):
             schema = ctx.dataset.get_field_schema()
             for field_name in (
                 session.label_field,
-                "train_positive",
-                "train_negative",
+                session.train_positive_field,
+                session.train_negative_field,
             ):
                 if field_name in schema:
                     ctx.dataset.delete_sample_field(field_name)
 
         self._clear_session(ctx)
-        ctx.ops.clear_view()
         ctx.ops.notify("Session reset", variant="info")
 
     def render(self, ctx: Any) -> types.Property:
@@ -909,6 +980,12 @@ class FewShotLearningPanel(foo.Panel):
                 on_click=self.train_and_apply,
                 variant="contained",
                 disabled=not session.can_train(),
+            )
+            panel.btn(
+                "view_predictions",
+                label="View Predictions",
+                on_click=self.view_predictions,
+                variant="outlined",
             )
 
             # Subset sampling settings (visible during active session)
