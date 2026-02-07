@@ -1,0 +1,9 @@
+name: "@51labs/few_shot_learning"
+description: Interactive few-shot learning with multiple model types
+version: 1.0.0
+fiftyone:
+  version: ">=1.0.0"
+url: https://github.com/voxel51/labs/tree/main/plugins/few_shot_learning
+license: Apache 2.0
+panels:
+  - few_shot_learning
