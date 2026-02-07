@@ -23,11 +23,11 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
         <th>Description</th>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/voxel51/labs/tree/main/plugins/labs_panel">@51labs/labs_panel</a></b></td>
+        <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/labs_panel">@51labs/labs_panel</a></b></td>
         <td>A panel listing all available Labs plugins</td>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/voxel51/labs/tree/main/plugins/video_apply_model">@51labs/video_apply_model</a></b></td>
+        <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/video_apply_model">@51labs/video_apply_model</a></b></td>
         <td>Apply image model to video dataset using torch dataloader</td>
     </tr>
     <tr>
@@ -37,6 +37,10 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
     <tr>
         <td><b><a href="https://github.com/voxel51/zero-shot-coreset-selection">@51labs/zero-shot-coreset-selection</a></b></td>
         <td>Zero-shot coreset selection (ZCore) for unlabeled image data</td>
+    </tr>
+    <tr>
+        <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/click_segmentation">@51labs/click_segmentation</a></b></td>
+        <td>Interactive image segmentation via prompts</td>
     </tr>
 </table>
 
@@ -69,14 +73,14 @@ pip install fiftyone
 To install all the features in this repository, you can run:
 
 ```shell
-fiftyone plugins download https://github.com/voxel51/labs
+fiftyone plugins download https://github.com/voxel51/fiftyone-labs
 ```
 
 You can also install a specific plugin using the `--plugin-names` flag:
 
 ```shell
 fiftyone plugins download \
-    https://github.com/voxel51/labs \
+    https://github.com/voxel51/fiftyone-labs \
     --plugin-names <name1> <name2> <name3>
 ```
 
@@ -86,7 +90,7 @@ fiftyone plugins download \
 
 ```shell
 fiftyone plugins download \
-    https://github.com/voxel51/fiftyone-plugins \
+    https://github.com/voxel51/fiftyone-labs \
     --plugin-names @51labs/labs_panel
 ```
 

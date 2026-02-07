@@ -1,0 +1,11 @@
+name: "@51labs/click_segmentation"
+description: FiftyOne Labs panel for image segmentation via point prompts
+version: 1.0.0
+fiftyone:
+  version: "*"
+url: https://github.com/voxel51/labs/tree/main/plugins/click_segmentation
+license: Apache 2.0
+operators:
+  - save_keypoints
+  - segment_with_prompts
+js_bundle: dist/index.umd.js

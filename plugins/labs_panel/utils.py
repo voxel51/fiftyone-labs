@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def list_labs_features(info=False):
     """Returns a list of available feature plugins registered in the
-    `FiftyOne Labs repository <https://github.com/voxel51/labs>`_
+    `FiftyOne Labs repository <https://github.com/voxel51/fiftyone-labs>`_
     README.
 
     Args:
@@ -24,7 +24,7 @@ def list_labs_features(info=False):
         a list of dicts describing the features
     """
 
-    repo = GitHubRepository("https://github.com/voxel51/labs")
+    repo = GitHubRepository("https://github.com/voxel51/fiftyone-labs")
     content = repo.get_file("README.md").decode()
 
     # Find h2 headings (##) in the readme
