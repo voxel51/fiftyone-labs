@@ -1,61 +1,46 @@
-import contextlib
-
-import fiftyone as fo
-import fiftyone.core.storage as fos
-
-try:
-    import fiftyone.internal.context_vars as _ficv
-    from fiftyone.internal.api_requests import (
-        get_api_key_or_token as _get_api_key_or_token,
-    )
-
-    _TEAMS = True
-except ImportError:
-    _TEAMS = False
+from typing import Tuple, Union, Optional
+import numpy as np
+import cv2
 
 
-def get_auth() -> dict:
-    """Return request_token/api_key kwargs for execute_operator (Teams only)."""
-    if not _TEAMS:
-        return {}
-    api_key, request_token = _get_api_key_or_token()
-    return {"request_token": request_token, "api_key": api_key}
+def fit_mask_to_bbox(
+    mask: np.ndarray, bbox_size: Tuple[int, int]
+) -> np.ndarray:
+    """
+    Pads or crops the mask to the bounding box size.
+    Args:
+        mask: np.ndarray of shape (mask_height, mask_width)
+        bbox_size: Tuple[int, int] of the bounding box size (height, width)
+    Returns:
+        np.ndarray of shape (height, width)
+    """
+    return np.pad(
+        mask,
+        [
+            (0, max(0, bbox_size[0] - mask.shape[0])),
+            (0, max(0, bbox_size[1] - mask.shape[1])),
+        ],
+    )[: bbox_size[0], : bbox_size[1]]
 
 
-@contextlib.contextmanager
-def auth_context():
-    """Ensure running_user_* context vars are populated before Teams RPC calls."""
-    auth_dict = get_auth()
-    api_key, request_token = auth_dict.get("api_key", None), auth_dict.get(
-        "request_token", None
-    )
-    if api_key is None:
-        yield
-        return
-    t = _ficv.running_user_request_token.set(request_token)
-    k = _ficv.running_user_api_key.set(api_key)
-    try:
-        yield
-    finally:
-        _ficv.running_user_request_token.reset(t)
-        _ficv.running_user_api_key.reset(k)
+def bbox_corners_in_pixel_coords(bbox, image_width, image_height):
+    """
+    Convert normalized bounding box [x, y, width, height] to pixel coordinates.
 
+    Args:
+        bbox: Normalized bounding box [x, y, width, height]
+        image_width: Image width in pixels
+        image_height: Image height in pixels
 
-def get_frame_schema(ds: fo.Dataset) -> dict:
-    if ds.media_type == "video":
-        frame_level_schema = ds.get_frame_field_schema()
-        frame_level_schema = {
-            "frames." + k: v
-            for k, v in frame_level_schema.items()  # type: ignore
-        }
-        return frame_level_schema
-    else:
-        return ds.get_field_schema()
-
-
-def get_local_path(sample_or_frame):
-    return (
-        sample_or_frame.filepath
-        if fos.is_local(sample_or_frame.filepath)
-        else sample_or_frame.local_path
-    )
+    Returns:
+        tuple: (x1, y1, x2, y2) pixel coordinates
+    """
+    x1 = int(bbox[0] * image_width)
+    y1 = int(bbox[1] * image_height)
+    x2 = int((bbox[0] + bbox[2]) * image_width)
+    y2 = int((bbox[1] + bbox[3]) * image_height)
+    x1 = max(0, min(x1, image_width - 1))
+    y1 = max(0, min(y1, image_height - 1))
+    x2 = max(x1 + 1, min(x2, image_width))
+    y2 = max(y1 + 1, min(y2, image_height))
+    return x1, y1, x2, y2
