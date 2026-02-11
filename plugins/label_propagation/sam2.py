@@ -110,9 +110,11 @@ class PropagatorSAM2:
         import torch
 
         device = torch.device(
-            "mps"
-            if torch.backends.mps.is_available()
-            else ("cuda" if torch.cuda.is_available() else "cpu")
+            # "mps" if torch.backends.mps.is_available() else (
+            "cuda"
+            if torch.cuda.is_available()
+            else "cpu"
+            # )  # avoid MPS to prevent Metal SIGABRTs
         )
 
         try:
@@ -170,7 +172,7 @@ class PropagatorSAM2:
         self.inference_state = self.sam2_predictor.init_state(str(frames_dir))
         self.preds_dict.clear()
         for idx, frame_path in enumerate(frame_path_list):
-            self.preds_dict[frame_path] = None
+            self.preds_dict[os.path.abspath(frame_path)] = None
         shutil.rmtree(frames_dir)
         logger.info(
             f"Inference state initialized with {len(frame_path_list)} frames; cleaned up temporary directory {frames_dir}"
@@ -198,7 +200,7 @@ class PropagatorSAM2:
                 "Must call initialize() before extract_spatial_embeddings()"
             )
 
-        frame_idx = list(self.preds_dict.keys()).index(frame_filepath)
+        frame_idx = list(self.preds_dict.keys()).index(os.path.abspath(frame_filepath))
         logger.debug(
             f"Extracting patch embeddings for frame {frame_filepath}..."
         )
@@ -243,7 +245,7 @@ class PropagatorSAM2:
             )
             return
 
-        source_frame_idx = list(self.preds_dict.keys()).index(source_filepath)
+        source_frame_idx = list(self.preds_dict.keys()).index(os.path.abspath(source_filepath))
         logger.debug(
             f"Registering source frame {source_filepath} at index {source_frame_idx}"
         )
@@ -387,7 +389,11 @@ class PropagatorSAM2:
             )
             return fo.Detections(detections=[])
 
-        return self.preds_dict[target_filepath]
+        result = self.preds_dict.get(
+            os.path.abspath(target_filepath),
+            fo.Detections(detections=[])
+        )
+        return result
 
 
 def propagate_annotations_sam2(
@@ -431,7 +437,25 @@ def propagate_annotations_sam2(
     )
 
     # Propagate
-    propagator.propagate_to_all_frames()
+    try:
+        propagator.propagate_to_all_frames()
+    except Exception as e:
+        """
+        ------------------------------------------------------------
+        This error typically occurs due to a mixed-precision dtype mismatch in SAM2's
+        internal transformer layers. SAM2 uses bfloat16 for some tensors while keeping
+        others (or layer weights) in float32, causing "mat1 and mat2 must have the same
+        dtype, but got BFloat16 and Float" errors in Linear layers during propagation.
+
+        This is a known issue in SAM2's implementation that is more likely to occur
+        when propagating across multiple sequences with different label sets,
+        as this triggers more complex memory attention paths in SAM2's tracking stack.
+        ------------------------------------------------------------
+        """
+        raise RuntimeError(
+            f"Error propagating to all frames; \
+        please try with a shorter sequence with continuous frames and consistent labels."
+        )
 
     # Populate propagations
     def populate_propagations(sample):

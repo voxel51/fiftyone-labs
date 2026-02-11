@@ -134,7 +134,6 @@ class PropagateLabels(foo.Operator):
             return {
                 "message": "Validation failed",
                 "samples_processed": 0,
-                "samples_evaluated": 0,
             }
 
         view = ctx.target_view()
@@ -165,7 +164,6 @@ class PropagateLabels(foo.Operator):
             return {
                 "message": error_msg,
                 "samples_processed": 0,
-                "error": "SAM2_INSTALLATION_OR_WEIGHTS_DOWNLOAD_FAILED",
             }
 
         return {
