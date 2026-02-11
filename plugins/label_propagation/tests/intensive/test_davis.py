@@ -8,6 +8,7 @@ from scipy.stats import spearmanr, pearsonr
 import fiftyone as fo
 import fiftyone.zoo as foz
 import fiftyone.operators as foo
+from fiftyone.core.expressions import ViewField as F
 
 # from ..utils import evaluate
 
@@ -20,8 +21,10 @@ def dataset():
         format="image",
     )
     SELECT_SEQUENCES = ["bike-packing"]
+    # SELECT_SEQUENCES = ["bike-packing", "car-roundabout"]
     # TODO(neeraja): support multiple sequences
-    dataset = dataset.match_tags(SELECT_SEQUENCES).limit(9)
+    dataset = dataset.match_tags(SELECT_SEQUENCES)
+    dataset = dataset.match(F("frame_number").to_int() < 9)
     return dataset
 
 
@@ -51,7 +54,7 @@ def partially_labeled_dataset(dataset):
         exemplar_sample["labels_test"] = exemplar_sample["ground_truth"]
         exemplar_sample.save()
 
-        # TODO(neeraja): support labeling and arbitrary frame
+        # TODO(neeraja): support labeling an arbitrary frame
 
     return dataset
 
