@@ -200,7 +200,9 @@ class PropagatorSAM2:
                 "Must call initialize() before extract_spatial_embeddings()"
             )
 
-        frame_idx = list(self.preds_dict.keys()).index(os.path.abspath(frame_filepath))
+        frame_idx = list(self.preds_dict.keys()).index(
+            os.path.abspath(frame_filepath)
+        )
         logger.debug(
             f"Extracting patch embeddings for frame {frame_filepath}..."
         )
@@ -245,7 +247,9 @@ class PropagatorSAM2:
             )
             return
 
-        source_frame_idx = list(self.preds_dict.keys()).index(os.path.abspath(source_filepath))
+        source_frame_idx = list(self.preds_dict.keys()).index(
+            os.path.abspath(source_filepath)
+        )
         logger.debug(
             f"Registering source frame {source_filepath} at index {source_frame_idx}"
         )
@@ -390,8 +394,7 @@ class PropagatorSAM2:
             return fo.Detections(detections=[])
 
         result = self.preds_dict.get(
-            os.path.abspath(target_filepath),
-            fo.Detections(detections=[])
+            os.path.abspath(target_filepath), fo.Detections(detections=[])
         )
         return result
 
@@ -400,8 +403,7 @@ def propagate_annotations_sam2(
     view: Union[fo.Dataset, fo.DatasetView],
     input_annotation_field: str,
     output_annotation_field: str,
-    evaluate_propagation: Optional[bool] = True,
-    sort_field: Optional[str] = "frame_number",
+    sort_field: str,
     progress: Optional[bool] = True,
 ) -> dict[str, float]:
     """
