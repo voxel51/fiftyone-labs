@@ -9,10 +9,12 @@ Extract exemplar frames from a video dataset and propagate annotations.
 import os
 import logging
 
+import fiftyone as fo
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
 
 from .sam2 import propagate_annotations_sam2
+from .exemplars import extract_exemplar_frames
 
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,7 @@ class AssignExemplarFrames(foo.Operator):
             description="Assign exemplar frames to frames of a video",
             light_icon="../../assets/labs_icon_light.svg",
             dark_icon="../../assets/labs_icon_dark.svg",
-            dynamic=False,
+            dynamic=True,
             execution_options=foo.ExecutionOptions(
                 allow_immediate=False,
                 allow_delegation=True,
@@ -38,13 +40,100 @@ class AssignExemplarFrames(foo.Operator):
         )
 
     def resolve_input(self, ctx) -> types.Property:
-        # inputs = types.Object()
-        # return types.Property(inputs)
-        raise NotImplementedError("Not implemented")
+        inputs = types.Object()
+        inputs.view_target(ctx)
+
+        method_choices = [
+            "heuristic",
+            # TODO(neeraja): add PySceneDetect
+            # TODO(neeraja): add Embedding-based
+        ]
+        method_dropdown = types.Dropdown()
+        for choice in method_choices:
+            method_dropdown.add_choice(choice, label=choice)
+
+        inputs.enum(
+            "method",
+            method_dropdown.values(),
+            default="heuristic",
+            label="Exemplar Extraction Method",
+            view=method_dropdown,
+            required=True,
+        )
+
+        # exemplar frame field
+        inputs.str(
+            "exemplar_frame_field",
+            label="Exemplar Frame Information Field",
+            default="exemplar",
+            required=True,
+        )
+
+        schema = ctx.dataset.get_field_schema()
+        field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
+        inputs.str(
+            "sort_field",
+            label="Field to Sort Samples by",
+            default="frame_number",
+            view=types.AutocompleteView(choices=field_choices)
+            if field_choices
+            else None,
+            required=True,
+        )
+
+        return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
-        # return {}
-        raise NotImplementedError("Not implemented")
+        method = ctx.params.get("method")
+        exemplar_frame_field = ctx.params.get("exemplar_frame_field")
+        sort_field = ctx.params.get("sort_field")
+
+        # Check if field exists and validate/convert its type
+        dataset = ctx.dataset
+        if exemplar_frame_field in dataset.get_field_schema():
+            logger.debug(
+                f"Exemplar frame field exists: {exemplar_frame_field}"
+            )
+            field_type_name = type(
+                dataset.get_field_schema()[exemplar_frame_field]
+            ).__name__
+            if field_type_name != "EmbeddedDocumentField":
+                logger.warning(
+                    f"Deleting exemplar frame field of incorrect type: {exemplar_frame_field}"
+                )
+                dataset.delete_sample_field(
+                    exemplar_frame_field, error_level=2
+                )
+
+        # Ensure the exemplar field exists and declare nested fields for proper schema support
+        # Use DynamicEmbeddedDocument to allow dynamic fields
+        if exemplar_frame_field not in dataset.get_field_schema():
+            logger.info(f"Adding exemplar frame field: {exemplar_frame_field}")
+            dataset.add_sample_field(
+                exemplar_frame_field,
+                fo.EmbeddedDocumentField,
+                embedded_doc_type=fo.DynamicEmbeddedDocument,
+            )
+            dataset.add_sample_field(
+                f"{exemplar_frame_field}.is_exemplar", fo.BooleanField
+            )
+            dataset.add_sample_field(
+                f"{exemplar_frame_field}.exemplar_assignment",
+                fo.ListField,
+                subfield=fo.ObjectIdField,
+            )
+
+        extract_exemplar_frames(
+            view=ctx.target_view(),
+            method=method,
+            exemplar_frame_field=exemplar_frame_field,
+            sort_field=sort_field,
+        )
+
+        return {
+            "message": f"Exemplar frames extracted and stored in field '{exemplar_frame_field}'",
+            "samples_processed": len(ctx.target_view()),
+        }
 
 
 class PropagateLabels(foo.Operator):
@@ -113,8 +202,8 @@ class PropagateLabels(foo.Operator):
         inputs.str(
             "output_annotation_field",
             label="Annotation Field to Propagate to",
-            default="human_labels_propagated",
-            required=True,
+            description="If not provided, a new field will be created with the name of the input field plus '_propagated'",
+            required=False,
         )
 
         inputs.str(
@@ -124,7 +213,7 @@ class PropagateLabels(foo.Operator):
             view=types.AutocompleteView(choices=field_choices)
             if field_choices
             else None,
-            required=False,
+            required=True,
         )
 
         return types.Property(inputs)
@@ -138,13 +227,11 @@ class PropagateLabels(foo.Operator):
 
         view = ctx.target_view()
         total_samples = len(view)
-        input_annotation_field = ctx.params.get(
-            "input_annotation_field", "human_labels"
-        )
+        input_annotation_field = ctx.params.get("input_annotation_field")
         output_annotation_field = ctx.params.get(
-            "output_annotation_field", "human_labels_propagated"
+            "output_annotation_field", f"{input_annotation_field}_propagated"
         )
-        sort_field = ctx.params.get("sort_field", "frame_number")
+        sort_field = ctx.params.get("sort_field")
 
         try:
             _ = propagate_annotations_sam2(
