@@ -1,4 +1,5 @@
 import os
+import datetime
 
 import fiftyone as fo
 import fiftyone.zoo as foz
@@ -6,10 +7,6 @@ import fiftyone.operators as foo
 from fiftyone.core.expressions import ViewField as F
 
 os.environ["VFF_EXP_ANNOTATION"] = "1"
-print("\n--------------------------------")
-print("Make sure your fiftyone installation is on the latest `develop`")
-print("--------------------------------\n")
-
 
 dataset = foz.load_zoo_dataset(
     "https://github.com/voxel51/davis-2017",
@@ -31,6 +28,7 @@ view2.set_values(
 )
 view = view1.concat(view2)
 
+print(f"Successfully loaded {len(view)} frames")
 
 session = fo.launch_app(view)
 
