@@ -19,8 +19,9 @@ def frame_discontinuity(sample_a, sample_b) -> bool:
         bool: True if a large discontinuity is detected between the two samples, False otherwise
     """
     TARGET_SIZE = (256, 256)
-    CORR_THRESHOLD = 0.7
-    MSE_THRESHOLD = 1000
+    GRAY_CORR_THRESHOLD = 0.9
+    HSV_CORR_THRESHOLD = 0.9
+    GRAY_DIFF_THRESHOLD = 30
 
     img_a = cv2.imread(sample_a.filepath)
     img_b = cv2.imread(sample_b.filepath)
@@ -28,18 +29,19 @@ def frame_discontinuity(sample_a, sample_b) -> bool:
     def get_image_features(img):
         img_resized = cv2.resize(img, TARGET_SIZE)
         gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
-        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
-        return gray, hist
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        gray_hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+        hsv_hist = cv2.calcHist([hsv], [0,1], None, [50,50], [0,180,0,256])
+        return gray, hsv, gray_hist, hsv_hist
 
-    gray_a, hist_a = get_image_features(img_a)
-    gray_b, hist_b = get_image_features(img_b)
+    gray_a, hsv_a, gray_hist_a, hsv_hist_a = get_image_features(img_a)
+    gray_b, hsv_b, gray_hist_b, hsv_hist_b = get_image_features(img_b)
 
-    # Compare histograms using correlation (returns value between 0 and 1, where 1 is identical)
-    correlation = cv2.compareHist(hist_a, hist_b, cv2.HISTCMP_CORREL)
-    # Also compute mean squared error for additional check
-    mse = np.mean((gray_a.astype(float) - gray_b.astype(float)) ** 2)
-
-    is_discontinuous = correlation < CORR_THRESHOLD or mse > MSE_THRESHOLD
+    gray_correlation = cv2.compareHist(gray_hist_a, gray_hist_b, cv2.HISTCMP_CORREL)
+    hsv_correlation = cv2.compareHist(hsv_hist_a, hsv_hist_b, cv2.HISTCMP_CORREL)
+    gray_diff = np.median(cv2.absdiff(gray_a, gray_b))
+    
+    is_discontinuous = gray_correlation < GRAY_CORR_THRESHOLD or hsv_correlation < HSV_CORR_THRESHOLD or gray_diff > GRAY_DIFF_THRESHOLD
 
     return is_discontinuous
 
