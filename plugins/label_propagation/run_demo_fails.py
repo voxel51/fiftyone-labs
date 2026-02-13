@@ -25,7 +25,9 @@ view1.set_values("new_frame_number", [ii for ii in range(len(view1))])
 
 view2 = dataset.match_tags(["soccerball"])
 view2 = view2.match(F("frame_number").to_int() < 8)
-view2.set_values("new_frame_number", [len(view1) + ii for ii in range(len(view2))])
+view2.set_values(
+    "new_frame_number", [len(view1) + ii for ii in range(len(view2))]
+)
 view = view1.concat(view2)
 
 
