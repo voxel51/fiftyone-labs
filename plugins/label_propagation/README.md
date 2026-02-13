@@ -80,9 +80,9 @@ On success, you should see a message similar to:<br>
 
 For this PR
 
-* [ ] Add `assign_exemplar_frames`
+* [x] Add `assign_exemplar_frames`
+* [x] Add a demo script using HA
 * [ ] Add evaluation to the intensive pytest
-* [ ] Add a demo script using HA
 * [ ] Documentation in Confluence
 
 

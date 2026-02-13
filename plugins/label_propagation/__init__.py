@@ -29,8 +29,8 @@ class AssignExemplarFrames(foo.Operator):
             name="assign_exemplar_frames",
             label="Assign Exemplar Frames Operator",
             description="Assign exemplar frames to frames of a video",
-            light_icon="../../assets/labs_icon_light.svg",
-            dark_icon="../../assets/labs_icon_dark.svg",
+            light_icon="/assets/labs_icon_light.svg",
+            dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
             execution_options=foo.ExecutionOptions(
                 allow_immediate=False,
@@ -145,8 +145,8 @@ class PropagateLabels(foo.Operator):
             name="propagate_labels",
             label="Propagate Labels From Input Field Operator",
             description="Propagate labels from labeled frames to all frames",
-            light_icon="../../assets/labs_icon_light.svg",
-            dark_icon="../../assets/labs_icon_dark.svg",
+            light_icon="/assets/labs_icon_light.svg",
+            dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
             execution_options=foo.ExecutionOptions(
                 allow_immediate=False,

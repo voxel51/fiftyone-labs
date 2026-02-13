@@ -13,14 +13,24 @@ print("--------------------------------\n")
 
 dataset = foz.load_zoo_dataset(
     "https://github.com/voxel51/davis-2017",
-    split="validation",
+    split="train",
     format="image",
 )
 dataset.persistent = True
 
-SELECT_SEQUENCES = ["dogs-jump"]
-view = dataset.match_tags(SELECT_SEQUENCES)
-view = view.match(F("frame_number").to_int() < 9)
+view1 = dataset.match_tags(["kid-football"])
+view1 = view1.match(F("frame_number").to_int() < 24)
+view1.set_values(
+  "new_frame_number", [ii for ii in range(len(view1))]
+)
+
+view2 = dataset.match_tags(["soccerball"])
+view2 = view2.match(F("frame_number").to_int() < 24)
+view2.set_values(
+    "new_frame_number", [len(view1) + ii for ii in range(len(view2))]
+)
+view = view1.concat(view2)
+
 
 session = fo.launch_app(view)
 
