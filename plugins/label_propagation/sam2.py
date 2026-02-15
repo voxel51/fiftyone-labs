@@ -403,7 +403,7 @@ def propagate_annotations_sam2(
     view: Union[fo.Dataset, fo.DatasetView],
     input_annotation_field: str,
     output_annotation_field: str,
-    sort_field: str,
+    sort_field: Optional[str] = None,
     progress: Optional[bool] = True,
 ) -> dict[str, float]:
     """
@@ -421,7 +421,7 @@ def propagate_annotations_sam2(
     # Set up the propagator
     propagator = PropagatorSAM2()
 
-    if view.has_field(sort_field):
+    if sort_field and view.has_field(sort_field):
         image_path_list = view.sort_by(sort_field).values("filepath")
     else:
         image_path_list = view.values("filepath")
@@ -467,7 +467,7 @@ def propagate_annotations_sam2(
         sample[output_annotation_field] = propagated_detections
         return
 
-    if view.has_field(sort_field):
+    if sort_field and view.has_field(sort_field):
         _ = list(
             view.sort_by(sort_field).map_samples(
                 populate_propagations,
