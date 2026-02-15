@@ -16,7 +16,7 @@ from fiftyone.core.expressions import ViewField as F
 import fiftyone.operators.types as types
 
 from .sam2 import propagate_annotations_sam2
-from .exemplars import extract_exemplar_frames
+from .exemplars import extract_exemplar_frames, SUPPORTED_SELECTION_METHODS
 
 
 logger = logging.getLogger(__name__)
@@ -45,19 +45,14 @@ class AssignExemplarFrames(foo.Operator):
         inputs = types.Object()
         inputs.view_target(ctx)
 
-        method_choices = [
-            "heuristic",
-            # TODO(neeraja): add PySceneDetect
-            # TODO(neeraja): add Embedding-based
-        ]
         method_dropdown = types.Dropdown()
-        for choice in method_choices:
+        for choice in SUPPORTED_SELECTION_METHODS:
             method_dropdown.add_choice(choice, label=choice)
 
         inputs.enum(
             "method",
             method_dropdown.values(),
-            default="heuristic",
+            default=SUPPORTED_SELECTION_METHODS[0],
             label="Exemplar Extraction Method",
             view=method_dropdown,
             required=True,
@@ -80,7 +75,7 @@ class AssignExemplarFrames(foo.Operator):
             view=types.AutocompleteView(choices=field_choices)
             if field_choices
             else None,
-            required=True,
+            required=False,
         )
 
         return types.Property(inputs)
@@ -88,7 +83,7 @@ class AssignExemplarFrames(foo.Operator):
     def execute(self, ctx) -> dict:
         method = ctx.params.get("method")
         exemplar_frame_field = ctx.params.get("exemplar_frame_field")
-        sort_field = ctx.params.get("sort_field")
+        sort_field = ctx.params.get("sort_field", None)
 
         # Check if field exists and validate/convert its type
         dataset = ctx.dataset
@@ -215,7 +210,7 @@ class PropagateLabels(foo.Operator):
             view=types.AutocompleteView(choices=field_choices)
             if field_choices
             else None,
-            required=True,
+            required=False,
         )
 
         return types.Property(inputs)
@@ -233,7 +228,7 @@ class PropagateLabels(foo.Operator):
         output_annotation_field = ctx.params.get(
             "output_annotation_field", f"{input_annotation_field}_propagated"
         )
-        sort_field = ctx.params.get("sort_field")
+        sort_field = ctx.params.get("sort_field", None)
 
         try:
             _ = propagate_annotations_sam2(
@@ -270,56 +265,388 @@ class LabelPropagationPanel(foo.Panel):
             name="label_propagation",
             label="Label Propagation",
         )
+    
+    def on_load(self, ctx: Any) -> None:
+        ctx.panel.state.exemplar_frame_field = None
+        ctx.panel.state.sort_field = None
+        ctx.panel.state.exemplar_field_exists_and_is_populated = False
+        ctx.panel.state.exemplars = {}
+        ctx.panel.state.selected_exemplar = None
+        ctx.panel.state.input_annotation_field = None
+        ctx.panel.state.output_annotation_field = None
+    
+    def _handle_sort_field_change(self, ctx: Any) -> None:
+        """
+        - Persist the sort field to ctx.panel.state
+        - Sort the view by the sort field
+        """
+        if "sort_field" in ctx.params:
+            ctx.panel.state.sort_field = ctx.params["sort_field"]
+        
+        sort_field = getattr(ctx.panel.state, "sort_field", None)
+        if sort_field:
+            ctx.ops.set_view(ctx.view.sort_by(sort_field))
+    
+    def _handle_exemplar_frame_field_change(self, ctx: Any) -> None:
+        """
+        - Persist the exemplar frame field to ctx.panel.state
+        - Check if the exemplar field exists and is fully populated
+        """
+        if "exemplar_frame_field" in ctx.params:
+            ctx.panel.state.exemplar_frame_field = ctx.params["exemplar_frame_field"]
+        
+        self._check_exemplar_field_populated(ctx)
+        self._discover_exemplars(ctx)
+    
+    def _check_exemplar_field_populated(
+        self, ctx: Any
+    ) -> None:
+        """
+        - Check if exemplar field exists and is fully populated
+        - Persist the result to ctx.panel.state.exemplar_field_exists_and_is_populated
+        """
+        exemplar_frame_field = getattr(ctx.panel.state, "exemplar_frame_field", None)
+        if not exemplar_frame_field or exemplar_frame_field not in ctx.dataset.get_field_schema():
+            ctx.panel.state.exemplar_field_exists_and_is_populated = False
+            return
+
+        view = ctx.view
+        samples_with_exemplar = view.exists(exemplar_frame_field)
+        count_with_exemplar = len(samples_with_exemplar)
+        count_total = len(view)
+
+        ctx.panel.state.exemplar_field_exists_and_is_populated = count_with_exemplar == count_total
+
+    def _discover_exemplars(
+        self, ctx: Any
+    ) -> None:
+        """
+        - Create a dict with exemplar 'id's as keys
+          and a list of their children's 'id's as values.
+          There may be an overlap between the
+          samples assigned to different exemplars.
+        - Persist the result to ctx.panel.state.exemplars
+        - Update the view to only include exemplar samples
+        """
+        view = ctx.view
+        exemplar_frame_field = getattr(ctx.panel.state, "exemplar_frame_field", None)
+        if not exemplar_frame_field:
+            return
+
+        # Find all samples where is_exemplar is True
+        exemplar_samples = view.match(
+            F(f"{exemplar_frame_field}.is_exemplar") == True
+        )
+        # Get all samples with exemplar_assignment containing the exemplar_id
+        for exemplar in exemplar_samples:
+            exemplar_id = exemplar.id
+            samples_with_exemplar = view.match(
+                F(f"{exemplar_frame_field}.exemplar_assignment").contains(
+                    exemplar_id
+                )
+            )
+            children_ids = list(samples_with_exemplar.values("id"))
+            children_ids.append(exemplar_id)
+            ctx.panel.state.exemplars[exemplar_id] = children_ids
+        
+        # Update the view to only include exemplar
+        # with ids in ctx.panel.state.exemplars
+        ctx.ops.set_view(view.select(list(ctx.panel.state.exemplars.keys())))
+        return
+    
+    def _handle_input_annotation_field_change(self, ctx: Any) -> None:
+        """
+        - Persist the input annotation field to ctx.panel.state
+        """
+        if "input_annotation_field" in ctx.params:
+            ctx.panel.state.input_annotation_field = ctx.params["input_annotation_field"]
+
+    def _handle_output_annotation_field_change(self, ctx: Any) -> None:
+        """
+        - Persist the output annotation field to ctx.panel.state
+        """
+        if "output_annotation_field" in ctx.params:
+            ctx.panel.state.output_annotation_field = ctx.params["output_annotation_field"]
+
+    def _run_assign_exemplar_frames(self, ctx: Any) -> None:
+        """Execute AssignExemplarFrames operator."""
+        op_ctx = {
+            "dataset": ctx.dataset,
+            "view": ctx.view,
+            "params": {
+                "exemplar_frame_field": getattr(ctx.panel.state, "exemplar_frame_field", None),
+                "sort_field": getattr(ctx.panel.state, "sort_field", None),
+                "method": getattr(ctx.panel.state, "method", None),
+            },
+        }
+        result = foo.execute_operator(
+            "@51labs/label_propagation/assign_exemplar_frames",
+            op_ctx,
+        )
+
+        if result and hasattr(result, "result"):
+            message = result.result.get("message", "assign_exemplar_frames operator executed")  # type: ignore[attr-defined]
+            ctx.ops.notify(message, variant="success")
+        else:
+            ctx.ops.notify("Failed to run assign_exemplar_frames operator", variant="error")
+
+        self._handle_exemplar_frame_field_change(ctx)
+    
+    def _handle_exemplar_selection(self, ctx: Any) -> None:
+        """
+        - Persist the selected exemplar to ctx.panel.state
+        - Open the propagation view for the selected exemplar
+        """
+        if "selected_exemplar" in ctx.params:
+            ctx.panel.state.selected_exemplar = ctx.params["selected_exemplar"]
+        
+        selected_exemplar = getattr(ctx.panel.state, "selected_exemplar", None)
+        if selected_exemplar:
+            try:
+                propagation_view = self._create_propagation_view(
+                    ctx, selected_exemplar
+                )
+                ctx.ops.set_view(propagation_view)
+                # TODO(neeraja): why does the above not work?
+                assert len(propagation_view) == len(ctx.view)
+                ctx.ops.notify(
+                    f"Opened propagation view for sample {selected_exemplar}",
+                    variant="info",
+                )
+            except Exception as e:
+                error_msg = f"Failed to open propagation view: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                ctx.ops.notify(error_msg, variant="error")
+
+    def _create_propagation_view(
+        self,
+        ctx: Any,
+        sample_id: str,
+    ) -> fo.DatasetView:
+        """Create a propagation view for the given exemplar.
+
+        Starts from the base view (stored on panel load) to preserve user filters
+        while replacing any existing exemplar filters.
+        """
+        discovered_exemplars = getattr(ctx.panel.state, "exemplars", {})
+
+        if sample_id not in discovered_exemplars:
+            exemplar_frame_field = getattr(ctx.panel.state, "exemplar_frame_field", None)
+            if not exemplar_frame_field:
+                raise RuntimeError(f"Exemplar frame field {exemplar_frame_field} not set")
+            sample = ctx.dataset[sample_id]
+            sample_exemplar_field = sample.get_field(exemplar_frame_field)
+            if not sample_exemplar_field:
+                raise RuntimeError(f"Exemplar frame field {exemplar_frame_field} not set for {sample_id}")
+            exemplar_ids = sample_exemplar_field["exemplar_assignment"]
+        else:
+            exemplar_ids = [sample_id]
+        
+        exemplar_children_ids = []
+        for exemplar_id in exemplar_ids:
+            exemplar_children_ids.extend(discovered_exemplars[exemplar_id])
+
+        # Create a view with all children sample IDs
+        propagation_view = ctx.view.select(exemplar_children_ids)
+
+        # Sort by sort_field if it exists
+        sort_field = getattr(ctx.panel.state, "sort_field", None)
+        if sort_field:
+            propagation_view = propagation_view.sort_by(sort_field)
+
+        return propagation_view
+    
+    def _run_propagate_labels(self, ctx: Any) -> None:
+        """Execute PropagateLabels operator."""
+        op_ctx = {
+            "dataset": ctx.dataset,
+            "view": ctx.view,
+            "params": {
+                "input_annotation_field": getattr(ctx.panel.state, "input_annotation_field", None),
+                "output_annotation_field": getattr(ctx.panel.state, "output_annotation_field", None),
+                "sort_field": getattr(ctx.panel.state, "sort_field", None),
+            },
+        }
+        result = foo.execute_operator(
+            "@51labs/label_propagation/propagate_labels",
+            op_ctx,
+        )
+
+        if result and hasattr(result, "result"):
+            message = result.result.get("message", "propagate_labels operator executed")  # type: ignore[attr-defined]
+            ctx.ops.notify(message, variant="success")
+        else:
+            ctx.ops.notify("Failed to run propagate_labels operator", variant="error")
+    
+    def render(self, ctx: Any) -> types.Property:
+        """Render the panel UI."""
+        panel = types.Object()
+
+        panel.md("### Label Propagation Across Frames", name="title")
+
+        # Configuration inputs (always at top)
+        panel.md("#### Configuration", name="panel_config_header")
+        schema = ctx.dataset.get_field_schema()
+        field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
+        panel.str(
+            "sort_field",
+            label="Sort Field",
+            default=getattr(ctx.panel.state, "sort_field", None),
+            view=types.AutocompleteView(choices=field_choices)
+            if field_choices
+            else None,
+            description="Field to sort samples by",
+            on_change=self._handle_sort_field_change,
+        )
+        panel.str(
+            "exemplar_frame_field",
+            label="Exemplar Frame Field",
+            default=getattr(ctx.panel.state, "exemplar_frame_field", None),
+            description="Field name for storing exemplar frame information",
+            on_change=self._handle_exemplar_frame_field_change,
+        )
+
+        # Assign Exemplar Frames section
+        field_exists_and_is_populated = getattr(ctx.panel.state, "exemplar_field_exists_and_is_populated", False)
+        if field_exists_and_is_populated:
+            panel.md("#### Rerun Exemplar Frame Selection (Optional)", name="panel_exemplar_selection_header_rerun")
+        else:
+            panel.md("#### Exemplar Frame Selection", name="panel_exemplar_selection_header")
+        method_dropdown = types.DropdownView()
+        for choice in SUPPORTED_SELECTION_METHODS:
+            method_dropdown.add_choice(choice, label=choice)
+
+        panel.str(
+            "method",
+            label="Method",
+            view=method_dropdown,
+            default=SUPPORTED_SELECTION_METHODS[0],
+            description="Exemplar extraction method",
+        )
+        panel.btn(
+            "run_assign_exemplar_frames",
+            label="Run Assign Exemplar Frames",
+            on_click=self._run_assign_exemplar_frames,
+            variant="contained",
+        )
+
+        panel.md("#### Open Propagation View", name="panel_propagation_view_header")
+        if field_exists_and_is_populated:
+            if not hasattr(ctx.panel.state, "exemplars"):
+                self._discover_exemplars(ctx)
+            exemplars = getattr(ctx.panel.state, "exemplars", {})
+
+            if exemplars:
+                exemplar_dropdown = types.DropdownView()
+                for exemplar_id, children_ids in exemplars.items():
+                    label = f"Exemplar {exemplar_id} [{len(children_ids)} samples]"
+                    exemplar_dropdown.add_choice(exemplar_id, label=label)
+
+                panel.str(
+                    "selected_exemplar",
+                    label="Selected Exemplar",
+                    view=exemplar_dropdown,
+                    default=None,
+                    on_change=self._handle_exemplar_selection,
+                )
+
+            else:
+                panel.md(
+                    "⚠️ No exemplars found. Run Assign Exemplar Frames first.",
+                    name="no_exemplars_warning"
+                )
+        else:
+            panel.md(
+                "⚠️ Exemplar field not found or not fully populated. Run Assign Exemplar Frames first.",
+                name="field_not_populated_warning"
+            )
+
+
+        # Propagation section
+        panel.md("#### Propagation")
+        panel.str(
+            "input_annotation_field",
+            label="Input Annotation Field",
+            default=getattr(ctx.panel.state, "input_annotation_field"),
+            view=types.AutocompleteView(choices=field_choices)
+            if field_choices
+            else None,
+            required=True,
+            description="Field containing annotations to propagate from",
+            on_change=self._handle_input_annotation_field_change,
+        )
+        if "input_annotation_field" in ctx.panel.state:
+            default_output_annotation_field = ctx.panel.state.input_annotation_field + "_propagated"
+        else:
+            default_output_annotation_field = getattr(ctx.panel.state, "output_annotation_field", None)
+        panel.str(
+            "output_annotation_field",
+            label="Output Annotation Field",
+            default=default_output_annotation_field,
+            description="Field to store propagated annotations (default: {input_field}_propagated)",
+            required=False,
+            on_change=self._handle_output_annotation_field_change,
+        )
+
+        panel.btn(
+            "run_propagate_labels",
+            label="Run Propagation",
+            on_click=self._run_propagate_labels,
+            variant="contained",
+        )
+
+        return types.Property(panel)
+
+
+class LabelPropagationPanelAISlop(foo.Panel):
+    """Interactive panel for label propagation with exemplar frames."""
+
+    @property
+    def config(self) -> foo.PanelConfig:
+        return foo.PanelConfig(
+            name="label_propagation_aislop",
+            label="Label Propagation AI Slop",
+        )
 
     def _get_base_view(self, ctx: Any) -> fo.DatasetView:
-        """Get the base view to use for propagation views.
-        
+        """
+        Get the base view to use for propagation views.
         Always starts from the dataset to avoid stacking exemplar filters.
         Users should apply their filters to the dataset before using the panel.
         """
+        # TODO(neeraja): delete function
         return ctx.dataset
 
-    def _get_exemplar_frame_field(self, ctx: Any) -> str:
-        """Get exemplar_frame_field from panel state or default."""
-        return getattr(ctx.panel.state, "exemplar_frame_field", "exemplar")
-
-    def _get_sort_field(self, ctx: Any) -> str:
-        """Get sort_field from panel state or default."""
-        return getattr(ctx.panel.state, "sort_field", "frame_number")
-
     def _check_exemplar_field_populated(
-        self, ctx: Any, exemplar_frame_field: str
-    ) -> tuple[bool, bool]:
+        self, ctx: Any
+    ) -> bool:
         """
         Check if exemplar field exists and is fully populated.
-        Returns: (field_exists, is_fully_populated)
         """
-        schema = ctx.dataset.get_field_schema()
-        if exemplar_frame_field not in schema:
-            return False, False
+        exemplar_frame_field = getattr(ctx.panel.state, "exemplar_frame_field", None)
+        if not exemplar_frame_field or exemplar_frame_field not in ctx.dataset.get_field_schema():
+            return False
 
-        # Check if field is fully populated in current view
         view = ctx.view
-        total_samples = len(view)
-        if total_samples == 0:
-            return True, False
-
-        # Count samples with exemplar data
         samples_with_exemplar = view.exists(exemplar_frame_field)
         count_with_exemplar = len(samples_with_exemplar)
+        count_total = len(view)
 
-        # Field is fully populated if all samples have exemplar data
-        is_fully_populated = count_with_exemplar == total_samples
-        return True, is_fully_populated
+        return count_with_exemplar == count_total
 
     def _discover_exemplars(
-        self, ctx: Any, exemplar_frame_field: str
+        self, ctx: Any
     ) -> List[Dict[str, Any]]:
         """
         Discover all exemplars from the dataset.
         Returns list of dicts with 'id' and 'sample_count'.
+        There may be an overlap between the samples assigned to different exemplars.
         """
         view = ctx.view
+        exemplar_frame_field = getattr(ctx.panel.state, "exemplar_frame_field", None)
+        if not exemplar_frame_field:
+            return []
+        # TODO(neeraja): make this a dict instead of a list
         exemplars = []
 
         # Find all samples where is_exemplar is True
@@ -333,7 +660,9 @@ class LabelPropagationPanel(foo.Panel):
             # Count samples in propagation view (where exemplar_id is in exemplar_assignment)
             # Include the exemplar sample itself
             samples_with_exemplar = view.match(
-                F(f"{exemplar_frame_field}.exemplar_assignment").contains(exemplar_id)
+                F(f"{exemplar_frame_field}.exemplar_assignment").contains(
+                    exemplar_id
+                )
             )
             # Get all sample IDs from both views and combine
             sample_ids = list(samples_with_exemplar.values("id"))
@@ -348,33 +677,40 @@ class LabelPropagationPanel(foo.Panel):
         return exemplars
 
     def _create_propagation_view(
-        self, ctx: Any, exemplar_id: str, exemplar_frame_field: str, sort_field: str
+        self,
+        ctx: Any,
+        exemplar_id: str,
+        exemplar_frame_field: str,
+        sort_field: Optional[str] = None,
     ) -> fo.DatasetView:
         """Create a propagation view for the given exemplar.
-        
+
         Starts from the base view (stored on panel load) to preserve user filters
         while replacing any existing exemplar filters.
         """
         # Start from base view to preserve user filters but avoid stacking exemplar filters
         base_view = self._get_base_view(ctx)
-        
+
         # Filter to samples where exemplar_id is in exemplar_assignment
+        # TODO(neeraja): do this in the discover_exemplars function
         samples_with_exemplar = base_view.match(
-            F(f"{exemplar_frame_field}.exemplar_assignment").contains(exemplar_id)
+            F(f"{exemplar_frame_field}.exemplar_assignment").contains(
+                exemplar_id
+            )
         )
-        
+
         # Get all sample IDs from the filtered view
         sample_ids = list(samples_with_exemplar.values("id"))
         # Add exemplar_id if not already present (it might be if exemplar_assignment contains itself)
         if exemplar_id not in sample_ids:
             sample_ids.append(exemplar_id)
-        
+
         # Create view with all sample IDs
         propagation_view = base_view.select(sample_ids)
 
         # Sort by sort_field if it exists
         schema = ctx.dataset.get_field_schema()
-        if sort_field in schema:
+        if sort_field and sort_field in schema:
             try:
                 propagation_view = propagation_view.sort_by(sort_field)
             except Exception as e:
@@ -384,36 +720,27 @@ class LabelPropagationPanel(foo.Panel):
 
     def _run_assign_exemplar_frames(self, ctx: Any) -> None:
         """Execute AssignExemplarFrames operator."""
-        exemplar_frame_field = self._get_exemplar_frame_field(ctx)
-        sort_field = self._get_sort_field(ctx)
-        method = getattr(ctx.panel.state, "method", "heuristic")
-
-        # Create operator context
         op_ctx = {
             "dataset": ctx.dataset,
             "view": ctx.view,
             "params": {
-                "exemplar_frame_field": exemplar_frame_field,
-                "sort_field": sort_field,
-                "method": method,
+                "exemplar_frame_field": getattr(ctx.panel.state, "exemplar_frame_field", None),
+                "sort_field": getattr(ctx.panel.state, "sort_field", None),
+                "method": getattr(ctx.panel.state, "method", None),
             },
         }
-
-        # Execute operator
         result = foo.execute_operator(
             "@51labs/label_propagation/assign_exemplar_frames",
             op_ctx,
         )
 
         if result and hasattr(result, "result"):
-            message = result.result.get("message", "Exemplar frames assigned")  # type: ignore[attr-defined]
+            message = result.result.get("message", "assign_exemplar_frames operator executed")  # type: ignore[attr-defined]
             ctx.ops.notify(message, variant="success")
         else:
-            ctx.ops.notify("Exemplar frames assigned", variant="success")
+            ctx.ops.notify("Failed to run assign_exemplar_frames operator", variant="error")
 
-        # Refresh exemplars after execution
         self._refresh_exemplars(ctx)
-
 
     def _run_propagate_labels(self, ctx: Any) -> None:
         """Execute PropagateLabels operator."""
@@ -423,7 +750,7 @@ class LabelPropagationPanel(foo.Panel):
         output_annotation_field = getattr(
             ctx.panel.state, "output_annotation_field", None
         )
-        sort_field = self._get_sort_field(ctx)
+        sort_field = getattr(ctx.panel.state, "sort_field", None)
 
         if not output_annotation_field:
             output_annotation_field = f"{input_annotation_field}_propagated"
@@ -457,15 +784,21 @@ class LabelPropagationPanel(foo.Panel):
             logger.error(error_msg, exc_info=True)
             ctx.ops.notify(error_msg, variant="error")
 
+    def _refresh_panel_config(self, ctx: Any) -> None:
+        """Refresh panel configuration from input params."""
+        if "exemplar_frame_field" in ctx.params:
+            ctx.panel.state.exemplar_frame_field = ctx.params["exemplar_frame_field"]
+        if "sort_field" in ctx.params:
+            ctx.panel.state.sort_field = ctx.params["sort_field"]
+
     def _refresh_exemplars(self, ctx: Any) -> None:
         """Refresh exemplar list from dataset."""
-        exemplar_frame_field = self._get_exemplar_frame_field(ctx)
-        field_exists, is_populated = self._check_exemplar_field_populated(
-            ctx, exemplar_frame_field
+        field_exists_and_is_populated = self._check_exemplar_field_populated(
+            ctx
         )
 
-        if field_exists and is_populated:
-            exemplars = self._discover_exemplars(ctx, exemplar_frame_field)
+        if field_exists_and_is_populated:
+            exemplars = self._discover_exemplars(ctx)
             ctx.panel.state.exemplars = exemplars
         else:
             ctx.panel.state.exemplars = []
@@ -477,12 +810,13 @@ class LabelPropagationPanel(foo.Panel):
         if not selected_exemplar:
             # Fallback: check if it's in the field name directly
             selected_exemplar = ctx.params.get("selected_exemplar")
-        
+
         if selected_exemplar:
             ctx.panel.state.selected_exemplar = selected_exemplar
             self._open_propagation_view(ctx)
         else:
             logger.warning(f"No exemplar value found in params: {ctx.params}")
+            # TODO(neeraja): in this case, open a view containing all exemplars only
 
     def _open_propagation_view(self, ctx: Any) -> None:
         """Open propagation view for selected exemplar."""
@@ -491,8 +825,8 @@ class LabelPropagationPanel(foo.Panel):
             ctx.ops.notify("No exemplar selected", variant="warning")
             return
 
-        exemplar_frame_field = self._get_exemplar_frame_field(ctx)
-        sort_field = self._get_sort_field(ctx)
+        exemplar_frame_field = getattr(ctx.panel.state, "exemplar_frame_field", "exemplar")
+        sort_field = getattr(ctx.panel.state, "sort_field", "frame_number")
 
         try:
             propagation_view = self._create_propagation_view(
@@ -513,7 +847,7 @@ class LabelPropagationPanel(foo.Panel):
         if not ctx.current_sample:
             return
 
-        exemplar_frame_field = self._get_exemplar_frame_field(ctx)
+        exemplar_frame_field = getattr(ctx.panel.state, "exemplar_frame_field", "exemplar")
         sample = ctx.dataset[ctx.current_sample]
 
         # Check if sample has exemplar data
@@ -528,7 +862,9 @@ class LabelPropagationPanel(foo.Panel):
         if getattr(exemplar_data, "is_exemplar", False):
             selected_exemplar = sample.id
         else:
-            exemplar_assignment = getattr(exemplar_data, "exemplar_assignment", [])
+            exemplar_assignment = getattr(
+                exemplar_data, "exemplar_assignment", []
+            )
             if exemplar_assignment:
                 selected_exemplar = exemplar_assignment[0]
             else:
@@ -542,34 +878,22 @@ class LabelPropagationPanel(foo.Panel):
         """Render the panel UI."""
         panel = types.Object()
 
-        # Get configuration values
-        exemplar_frame_field = self._get_exemplar_frame_field(ctx)
-        sort_field = self._get_sort_field(ctx)
-
-        # Update state from params if present
-        if "exemplar_frame_field" in ctx.params:
-            exemplar_frame_field = ctx.params["exemplar_frame_field"]
-            ctx.panel.state.exemplar_frame_field = exemplar_frame_field
-        if "sort_field" in ctx.params:
-            sort_field = ctx.params["sort_field"]
-            ctx.panel.state.sort_field = sort_field
-
-        # Get schema once for reuse
-        schema = ctx.dataset.get_field_schema()
-        field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
+        panel.md("### Label Propagation Across Frames", name="title")
 
         # Configuration inputs (always at top)
-        panel.md("---\n**Configuration:**")
+        panel.md("#### Configuration", name="panel_config_header")
         panel.str(
             "exemplar_frame_field",
             label="Exemplar Frame Field",
-            default=exemplar_frame_field,
+            default=getattr(ctx.panel.state, "exemplar_frame_field", None),
             description="Field name for storing exemplar frame information",
         )
+        schema = ctx.dataset.get_field_schema()
+        field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
         panel.str(
             "sort_field",
             label="Sort Field",
-            default=sort_field,
+            default=getattr(ctx.panel.state, "sort_field", None),
             view=types.AutocompleteView(choices=field_choices)
             if field_choices
             else None,
@@ -577,28 +901,25 @@ class LabelPropagationPanel(foo.Panel):
         )
 
         # Check exemplar field status
-        field_exists, is_populated = self._check_exemplar_field_populated(
-            ctx, exemplar_frame_field
-        )
+        self._refresh_panel_config(ctx)
+        field_exists_and_is_populated = self._check_exemplar_field_populated(ctx)
 
         # Assign Exemplar Frames section
-        panel.md("---\n**Assign Exemplar Frames:**")
-        method_choices = ["heuristic"]
+        if field_exists_and_is_populated:
+            panel.md("#### Rerun Exemplar Frame Selection (Optional)", name="panel_exemplar_selection_header_rerun")
+        else:
+            panel.md("#### Exemplar Frame Selection", name="panel_exemplar_selection_header")
         method_dropdown = types.DropdownView()
-        for choice in method_choices:
+        for choice in SUPPORTED_SELECTION_METHODS:
             method_dropdown.add_choice(choice, label=choice)
 
-        current_method = getattr(ctx.panel.state, "method", "heuristic")
         panel.str(
             "method",
             label="Method",
             view=method_dropdown,
-            default=current_method,
+            default=SUPPORTED_SELECTION_METHODS[0],
             description="Exemplar extraction method",
         )
-        if "method" in ctx.params:
-            ctx.panel.state.method = ctx.params["method"]
-
         panel.btn(
             "run_assign_exemplar_frames",
             label="Run Assign Exemplar Frames",
@@ -606,9 +927,8 @@ class LabelPropagationPanel(foo.Panel):
             variant="contained",
         )
 
-        # Exemplars section
-        panel.md("---\n**Exemplars:**")
-        if field_exists and is_populated:
+        panel.md("### Open Propagation View", name="panel_propagation_view_header")
+        if field_exists_and_is_populated:
             if not hasattr(ctx.panel.state, "exemplars"):
                 self._refresh_exemplars(ctx)
             exemplars = getattr(ctx.panel.state, "exemplars", [])
@@ -621,7 +941,9 @@ class LabelPropagationPanel(foo.Panel):
                     label = f"Exemplar {exemplar_id[:8]}... ({sample_count} samples)"
                     exemplar_dropdown.add_choice(exemplar_id, label=label)
 
-                selected_exemplar = getattr(ctx.panel.state, "selected_exemplar", None)
+                selected_exemplar = getattr(
+                    ctx.panel.state, "selected_exemplar", None
+                )
                 panel.str(
                     "selected_exemplar",
                     label="Selected Exemplar",
@@ -639,7 +961,8 @@ class LabelPropagationPanel(foo.Panel):
 
                 if selected_exemplar:
                     exemplar_info = next(
-                        (e for e in exemplars if e["id"] == selected_exemplar), None
+                        (e for e in exemplars if e["id"] == selected_exemplar),
+                        None,
                     )
                     if exemplar_info:
                         panel.md(
@@ -647,48 +970,56 @@ class LabelPropagationPanel(foo.Panel):
                             f"({exemplar_info['sample_count']} samples)"
                         )
             else:
-                panel.md("⚠️ No exemplars found. Run Assign Exemplar Frames first.")
+                panel.md(
+                    "⚠️ No exemplars found. Run Assign Exemplar Frames first.",
+                    name="no_exemplars_warning"
+                )
         else:
-            panel.md("⚠️ Exemplar field not found or not fully populated. Run Assign Exemplar Frames first.")
-
-        # Propagation section
-        panel.md("---\n**Propagation:**")
-        input_annotation_field = getattr(
-            ctx.panel.state, "input_annotation_field", "human_labels"
-        )
-        panel.str(
-            "input_annotation_field",
-            label="Input Annotation Field",
-            default=input_annotation_field,
-            view=types.AutocompleteView(choices=field_choices)
-            if field_choices
-            else None,
-            description="Field containing annotations to propagate from",
-        )
-        if "input_annotation_field" in ctx.params:
-            ctx.panel.state.input_annotation_field = ctx.params["input_annotation_field"]
-
-        output_annotation_field = getattr(
-            ctx.panel.state, "output_annotation_field", None
-        )
-        panel.str(
-            "output_annotation_field",
-            label="Output Annotation Field",
-            default=output_annotation_field,
-            description="Field to store propagated annotations (default: {input_field}_propagated)",
-            required=False,
-        )
-        if "output_annotation_field" in ctx.params:
-            ctx.panel.state.output_annotation_field = ctx.params.get(
-                "output_annotation_field", None
+            panel.md(
+                "⚠️ Exemplar field not found or not fully populated. Run Assign Exemplar Frames first.",
+                name="field_not_populated_warning"
             )
 
-        panel.btn(
-            "run_propagate_labels",
-            label="Run Propagation",
-            on_click=self._run_propagate_labels,
-            variant="contained",
-        )
+        # # Propagation section
+        # panel.md("### Propagation")
+        # input_annotation_field = getattr(
+        #     ctx.panel.state, "input_annotation_field", "human_labels"
+        # )
+        # panel.str(
+        #     "input_annotation_field",
+        #     label="Input Annotation Field",
+        #     default=input_annotation_field,
+        #     view=types.AutocompleteView(choices=field_choices)
+        #     if field_choices
+        #     else None,
+        #     description="Field containing annotations to propagate from",
+        # )
+        # if "input_annotation_field" in ctx.params:
+        #     ctx.panel.state.input_annotation_field = ctx.params[
+        #         "input_annotation_field"
+        #     ]
+
+        # output_annotation_field = getattr(
+        #     ctx.panel.state, "output_annotation_field", None
+        # )
+        # panel.str(
+        #     "output_annotation_field",
+        #     label="Output Annotation Field",
+        #     default=output_annotation_field,
+        #     description="Field to store propagated annotations (default: {input_field}_propagated)",
+        #     required=False,
+        # )
+        # if "output_annotation_field" in ctx.params:
+        #     ctx.panel.state.output_annotation_field = ctx.params.get(
+        #         "output_annotation_field", None
+        #     )
+
+        # panel.btn(
+        #     "run_propagate_labels",
+        #     label="Run Propagation",
+        #     on_click=self._run_propagate_labels,
+        #     variant="contained",
+        # )
 
         return types.Property(panel)
 
