@@ -11,9 +11,8 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_SELECTION_METHODS = [
     "heuristic",
-    # "uniform",
-    # TODO(neeraja): add PySceneDetect
-    # TODO(neeraja): add Embedding-based
+    # TODO(neeraja): add PySceneDetect [in a follow-up PR]
+    # TODO(neeraja): add a fail-safe embedding-based method [in a follow-up PR]
 ]
 
 
@@ -73,31 +72,7 @@ def extract_exemplar_frames(
     if sort_field and view.has_field(sort_field):
         view = view.sort_by(sort_field)
 
-    if method == "uniform":
-        PERIOD = 2
-        # every PERIOD-th sample is an exemplar
-        # first frame is an exemplar
-
-        exemplar_frame_field_values = {}
-        curr_exemplar_id = view.first().id
-        for ii, sample in enumerate(view):
-            if ii % PERIOD == 0:
-                curr_exemplar_id = sample.id
-                is_exemplar = True
-            else:
-                is_exemplar = False
-            exemplar_frame_field_values[sample.id] = fo.DynamicEmbeddedDocument(
-                is_exemplar=is_exemplar,
-                exemplar_assignment=[curr_exemplar_id]
-                if not is_exemplar
-                else [],
-            )
-        
-        view.set_values(exemplar_frame_field, exemplar_frame_field_values, key_field="id")
-        view.save()
-        logger.info(f"Extracted {len(view) // PERIOD} exemplar frames and stored in field '{exemplar_frame_field}'")  # type: ignore[arg-type]
-
-    elif method == "heuristic":
+    if method == "heuristic":
         exemplar_frame_field_values = {}
         exemplar_count = 0
         curr_exemplar_id = view.first().id
