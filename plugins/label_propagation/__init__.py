@@ -12,7 +12,7 @@ import fiftyone as fo
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
 
-from .sam2 import propagate_annotations_sam2
+from .sam2_wrapper import propagate_annotations_sam2
 from .exemplars import extract_exemplar_frames, SUPPORTED_SELECTION_METHODS
 from .panel import LabelPropagationPanel
 
