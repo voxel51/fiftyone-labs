@@ -56,11 +56,10 @@ def partially_labeled_dataset_view(dataset_view):
         new_frame_number += len(seq_slice)
 
         # label only the first
+        # TODO(neeraja): support backward propagation [in a follow-up PR]
         exemplar_sample = seq_slice.first()
         exemplar_sample["labels_test"] = exemplar_sample["ground_truth"]
         exemplar_sample.save()
-
-        # TODO(neeraja): support labeling an arbitrary frame
 
     return dataset_view
 
@@ -102,4 +101,4 @@ def test_propagate_labels(partially_labeled_dataset_view):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    # TODO(neeraja): add evaluation
+    # TODO(neeraja): add evaluation [in a follow-up PR]

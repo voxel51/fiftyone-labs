@@ -30,17 +30,20 @@ class LabelPropagationPanel(foo.Panel):
         ctx.panel.state.selected_exemplar = None
         ctx.panel.state.input_annotation_field = None
         ctx.panel.state.output_annotation_field = None
+        self.register_base_view(ctx)
     
     def register_base_view(self, ctx: Any) -> None:
         """
         - Persist the base view to ctx.panel.base_view
           in a serializable format
         """
+        logger.info(f"Registering base view with {len(ctx.view)} samples")
         ctx.panel.state.base_view = list(ctx.view.values("id"))
     
     def get_base_view(self, ctx: Any) -> fo.DatasetView:
         if hasattr(ctx.panel.state, "base_view") and ctx.panel.state.base_view:
             return ctx.dataset.select(ctx.panel.state.base_view)
+        logger.info(f"No base view found in panel state, using current view with {len(ctx.view)} samples")
         return ctx.view
     
     def _handle_sort_field_change(self, ctx: Any) -> None:
@@ -101,6 +104,7 @@ class LabelPropagationPanel(foo.Panel):
         if not exemplar_frame_field:
             return
 
+        exemplar_dict = {}
         # Find all samples where is_exemplar is True
         exemplar_samples = view.match(
             F(f"{exemplar_frame_field}.is_exemplar") == True
@@ -115,8 +119,10 @@ class LabelPropagationPanel(foo.Panel):
             )
             children_ids = list(samples_with_exemplar.values("id"))
             children_ids.append(exemplar_id)
-            ctx.panel.state.exemplars[exemplar_id] = children_ids
+            exemplar_dict[exemplar_id] = children_ids
         
+        ctx.panel.state.exemplars = exemplar_dict
+
         # Update the view to only include exemplar
         # with ids in ctx.panel.state.exemplars
         ctx.ops.set_view(view.select(list(ctx.panel.state.exemplars.keys())))
@@ -175,8 +181,6 @@ class LabelPropagationPanel(foo.Panel):
                     ctx, selected_exemplar
                 )
                 ctx.ops.set_view(propagation_view)
-                assert len(propagation_view) == len(ctx.view)
-                # TODO(neeraja): why does the above not work?
                 ctx.ops.notify(
                     f"Opened propagation view for sample {selected_exemplar}",
                     variant="info",
@@ -197,7 +201,6 @@ class LabelPropagationPanel(foo.Panel):
         while replacing any existing exemplar filters.
         """
         discovered_exemplars = getattr(ctx.panel.state, "exemplars", {})
-
         if sample_id not in discovered_exemplars:
             exemplar_frame_field = getattr(ctx.panel.state, "exemplar_frame_field", None)
             if not exemplar_frame_field:
@@ -301,7 +304,7 @@ class LabelPropagationPanel(foo.Panel):
 
         panel.md("#### Open Propagation View", name="panel_propagation_view_header")
         if field_exists_and_is_populated:
-            if not hasattr(ctx.panel.state, "exemplars"):
+            if not hasattr(ctx.panel.state, "exemplars") or len(ctx.panel.state.exemplars) == 0:
                 self._discover_exemplars(ctx)
             exemplars = getattr(ctx.panel.state, "exemplars", {})
 

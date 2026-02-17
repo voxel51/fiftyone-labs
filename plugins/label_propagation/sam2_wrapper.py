@@ -7,6 +7,7 @@ from typing import Tuple, Union, Optional, Any
 from collections import OrderedDict
 import urllib.request
 from urllib.error import URLError
+from dataclasses import dataclass
 
 import numpy as np
 import cv2
@@ -20,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 SAM2_CHECKPOINT_PATH = None
+
+
+@dataclass(frozen=True)
+class SAM2ObjID:
+    label: str
+    detection_id: str
 
 
 class PropagatorSAM2:
@@ -89,16 +96,20 @@ class PropagatorSAM2:
         Initialize the inference state with the frames list.
         Args:
             frame_path_list: List of frame file paths ordered by frame number
+            [video file support coming soon]
         """
-        # TODO(neeraja): handle video files
         frames_dir = self.path_list_to_dir(frame_path_list)
-        self.inference_state = self.sam2_predictor.init_state(str(frames_dir))
+        try:
+            self.inference_state = self.sam2_predictor.init_state(str(frames_dir))
+        finally:
+            shutil.rmtree(frames_dir)
+            logger.info(f"Cleaned up temporary directory {frames_dir}")
+
         self.preds_dict.clear()
         for idx, frame_path in enumerate(frame_path_list):
             self.preds_dict[os.path.abspath(frame_path)] = None
-        shutil.rmtree(frames_dir)
         logger.info(
-            f"Inference state initialized with {len(frame_path_list)} frames; cleaned up temporary directory {frames_dir}"
+            f"Inference state initialized with {len(frame_path_list)} frames"
         )
 
     def register_source_frame(self, source_filepath, source_detections):
@@ -109,8 +120,6 @@ class PropagatorSAM2:
             source_filepath: The source frame file path
             source_detections: The detections from source_frame (fo.Detections)
         """
-        cv2.setNumThreads(1)
-
         if not hasattr(source_detections, "detections"):
             logger.warning(
                 f"Source detections is either empty, or not a fo.Detections object: {source_detections}"
@@ -150,7 +159,7 @@ class PropagatorSAM2:
                 self.sam2_predictor.add_new_mask(
                     inference_state=self.inference_state,
                     frame_idx=source_frame_idx,
-                    obj_id=detection.label,
+                    obj_id=SAM2ObjID(label=detection.label, detection_id=detection.id),
                     mask=source_mask_framed,
                 )
                 logger.debug(f"Added new segmentation mask: {detection.label}")
@@ -158,7 +167,7 @@ class PropagatorSAM2:
                 self.sam2_predictor.add_new_points_or_box(
                     inference_state=self.inference_state,
                     frame_idx=source_frame_idx,
-                    obj_id=detection.label,
+                    obj_id=SAM2ObjID(label=detection.label, detection_id=detection.id),
                     box=[x1, y1, x2, y2],
                 )
                 logger.debug(f"Added new bounding box: {detection.label}")
@@ -226,7 +235,7 @@ class PropagatorSAM2:
                 new_detection = fo.Detection(
                     bounding_box=new_bbox,
                     mask=mask_fitted,
-                    label=obj_id,
+                    label=obj_id.label,
                 )
                 propagated_detections.append(new_detection)
 
