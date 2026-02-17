@@ -10,6 +10,7 @@ from urllib.error import URLError
 
 import numpy as np
 import cv2
+from tqdm import tqdm
 
 import fiftyone as fo
 from .utils import bbox_corners_in_pixel_coords, fit_mask_to_bbox
@@ -18,83 +19,23 @@ from .utils import bbox_corners_in_pixel_coords, fit_mask_to_bbox
 logger = logging.getLogger(__name__)
 
 
-def _download_sam2_weights(
-    checkpoint_path: str, checkpoint_filename: str
-) -> None:
-    """
-    Download SAM2 weights from the official repository.
-
-    Args:
-        checkpoint_path: Full path where the checkpoint should be saved
-        checkpoint_filename: Name of the checkpoint file (e.g., "sam2.1_hiera_tiny.pt")
-    Raises:
-        RuntimeError: If download fails
-    """
-    weights_url = f"https://dl.fbaipublicfiles.com/segment_anything_2/{checkpoint_filename}"
-
-    logger.info(f"Downloading SAM2 weights from {weights_url}...")
-    logger.info(f"Target location: {checkpoint_path}")
-
-    # Create weights directory if it doesn't exist
-    weights_dir = os.path.dirname(checkpoint_path)
-    os.makedirs(weights_dir, exist_ok=True)
-
-    try:
-        # Download with progress reporting
-        def _show_progress(block_num, block_size, total_size):
-            if total_size > 0:
-                percent = min(
-                    100, (block_num * block_size * 100) // total_size
-                )
-                if percent % 10 == 0:  # Log every 10%
-                    logger.info(f"Download progress: {percent}%")
-
-        urllib.request.urlretrieve(
-            weights_url, checkpoint_path, _show_progress
-        )
-        logger.info(f"Successfully downloaded weights to {checkpoint_path}")
-
-    except URLError as e:
-        raise RuntimeError(
-            f"Failed to download SAM2 weights from {weights_url}: {e}. "
-            f"Please download manually from https://github.com/facebookresearch/segment-anything-2 "
-            f"and place {checkpoint_filename} in {weights_dir}/"
-        )
-    except Exception as e:
-        raise RuntimeError(f"Unexpected error downloading SAM2 weights: {e}")
-
-    # Verify file was downloaded (check file size > 0)
-    if (
-        not os.path.exists(checkpoint_path)
-        or os.path.getsize(checkpoint_path) == 0
-    ):
-        raise RuntimeError(
-            f"SAM2 weights file {checkpoint_filename} is empty or does not exist:"
-            f"Please download manually from https://github.com/facebookresearch/segment-anything-2 "
-            f"and place {checkpoint_filename} in {weights_dir}/"
-        )
+SAM2_CHECKPOINT_PATH = None
 
 
 class PropagatorSAM2:
-    def __init__(self, model_cfg=None, checkpoint=None):
+    def __init__(self):
         """
-        Initialize SAM2 propagator.
-        1. Install SAM2 from https://github.com/facebookresearch/segment-anything-2
-        2. Download the config and checkpoint to the installed location under weights/
+        Initialize SAM2 propagator
         """
-        # SAM2 uses Hydra config loading, which expects config names relative to its search path
-        # Use the config name that exists in the SAM2 package, not an absolute path
-        self.model_cfg = "configs/sam2.1/sam2.1_hiera_t.yaml"
-        self.checkpoint = "weights/sam2.1_hiera_tiny.pt"
+        self.model_cfg = "configs/sam2/sam2_hiera_t.yaml"
         self.sam2_predictor: Any = None  # type: ignore[assignment]
         self.inference_state: Any = None  # type: ignore[assignment]
-        self.setup()
         self.preds_dict = OrderedDict()
         self.label_type = "bounding_box"
+        self.setup()
 
     def setup(self):
         import torch
-
         device = torch.device(
             # "mps" if torch.backends.mps.is_available() else (
             "cuda"
@@ -103,28 +44,24 @@ class PropagatorSAM2:
             # )  # avoid MPS to prevent Metal SIGABRTs
         )
 
-        try:
-            import sam2
-        except ImportError:
-            RuntimeError(
-                "SAM2 is not installed. Please install it with:\n"
-                "pip install git+https://github.com/facebookresearch/segment-anything-2.git"
-            )
         from sam2.build_sam import build_sam2_video_predictor
+        import fiftyone.zoo as foz
 
-        package_dir = os.path.dirname(os.path.abspath(sam2.__file__))
-        checkpoint_path = os.path.join(package_dir, self.checkpoint)
-
-        # Check if weights exist, if not try to download them
-        if not os.path.exists(checkpoint_path):
-            logger.warning(
-                f"SAM2 checkpoint not found at {checkpoint_path}. Attempting to download..."
-            )
-            checkpoint_filename = os.path.basename(self.checkpoint)
-            _download_sam2_weights(checkpoint_path, checkpoint_filename)
-
+        # Load model from zoo to get checkpoint path
+        # (cache to avoid reloading)
+        global SAM2_CHECKPOINT_PATH
+        if SAM2_CHECKPOINT_PATH is None:
+            zoo_model = foz.load_zoo_model("segment-anything-2-hiera-tiny-image-torch")
+            SAM2_CHECKPOINT_PATH = zoo_model.config.model_path
+            # Delete zoo model to free memory (especially GPU memory)
+            del zoo_model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        # build_sam2_video_predictor expects a relative config path that Hydra can resolve
+        # The config path should be relative to the sam2 package's config directory
         self.sam2_predictor = build_sam2_video_predictor(
-            self.model_cfg, checkpoint_path, device=str(device)
+            self.model_cfg, SAM2_CHECKPOINT_PATH, device=str(device)
         )
         logger.info("SAM2 predictor initialized successfully")
 
