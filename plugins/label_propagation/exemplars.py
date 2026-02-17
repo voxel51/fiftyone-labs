@@ -37,7 +37,7 @@ def frame_discontinuity(sample_a, sample_b) -> bool:
     def get_image_features(img):
         img_resized = cv2.resize(img, TARGET_SIZE)
         gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(img_resized, cv2.COLOR_BGR2HSV)
         gray_hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
         hsv_hist = cv2.calcHist(
             [hsv], [0, 1], None, [50, 50], [0, 180, 0, 256]
@@ -77,6 +77,8 @@ def extract_exemplar_frames(
         PERIOD = 2
         # every PERIOD-th sample is an exemplar
         # first frame is an exemplar
+
+        exemplar_frame_field_values = {}
         curr_exemplar_id = view.first().id
         for ii, sample in enumerate(view):
             if ii % PERIOD == 0:
@@ -84,37 +86,39 @@ def extract_exemplar_frames(
                 is_exemplar = True
             else:
                 is_exemplar = False
-            sample[exemplar_frame_field] = fo.DynamicEmbeddedDocument(
+            exemplar_frame_field_values[sample.id] = fo.DynamicEmbeddedDocument(
                 is_exemplar=is_exemplar,
                 exemplar_assignment=[curr_exemplar_id]
                 if not is_exemplar
                 else [],
             )
-            sample.save()
+        
+        view.set_values(exemplar_frame_field, exemplar_frame_field_values, key_field="id")
+        view.save()
         logger.info(f"Extracted {len(view) // PERIOD} exemplar frames and stored in field '{exemplar_frame_field}'")  # type: ignore[arg-type]
 
     elif method == "heuristic":
+        exemplar_frame_field_values = {}
         exemplar_count = 0
         curr_exemplar_id = view.first().id
         prev_sample = view[curr_exemplar_id]
         for ii, sample in enumerate(view):
-            if sample.id == curr_exemplar_id:
-                is_exemplar = True
-                exemplar_count += 1
-            elif frame_discontinuity(prev_sample, sample):
+            if (sample.id == curr_exemplar_id) or frame_discontinuity(prev_sample, sample):
                 is_exemplar = True
                 exemplar_count += 1
                 curr_exemplar_id = sample.id
             else:
                 is_exemplar = False
-            sample[exemplar_frame_field] = fo.DynamicEmbeddedDocument(
+            exemplar_frame_field_values[sample.id] = fo.DynamicEmbeddedDocument(
                 is_exemplar=is_exemplar,
                 exemplar_assignment=[curr_exemplar_id]
                 if not is_exemplar
                 else [],
             )
-            sample.save()
             prev_sample = sample
+        
+        view.set_values(exemplar_frame_field, exemplar_frame_field_values, key_field="id")
+        view.save()
         logger.info(f"Extracted {exemplar_count} exemplar frames and stored in field '{exemplar_frame_field}'")  # type: ignore[arg-type]
 
     else:

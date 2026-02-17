@@ -1,33 +1,19 @@
 import os
-import logging
-from typing import Tuple, Union, Optional
-import numpy as np
-import cv2
-from scipy.optimize import linear_sum_assignment
-
-import fiftyone as fo
-
-logger = logging.getLogger(__name__)
-
-# from suc_utils import evaluate_success_rate
-# from embedding_utils import propagatability_pre_label, propagatability_post_label
-
-
-import os
 import tempfile
 import shutil
 from pathlib import Path
 import logging
 from typing import Tuple, Union, Optional, Any
-import numpy as np
-import cv2
 from collections import OrderedDict
 import urllib.request
 from urllib.error import URLError
 
-import fiftyone as fo
+import numpy as np
+import cv2
 
+import fiftyone as fo
 from .utils import bbox_corners_in_pixel_coords, fit_mask_to_bbox
+
 
 logger = logging.getLogger(__name__)
 
@@ -177,59 +163,6 @@ class PropagatorSAM2:
         logger.info(
             f"Inference state initialized with {len(frame_path_list)} frames; cleaned up temporary directory {frames_dir}"
         )
-
-    def extract_spatial_embeddings(self, frame_filepath, feature_level=0):
-        """
-        Extract patch-wise embeddings for all images in the inference state.
-
-        After initialize() (stage 1), this extracts vision features for all frames.
-        The embeddings are returned with spatial dimensions preserved.
-
-        Args:
-            frame_filepath: The frame file path to extract embeddings for
-            feature_level: Which feature level to extract (0=highest res (default), -1=lowest res)
-
-        Returns:
-            embedding: A tensor with shape (C, H, W) for the given feature level.
-            C = number of channels, H = embedding height, W = embedding width
-        """
-        import torch
-
-        if self.inference_state is None:
-            raise RuntimeError(
-                "Must call initialize() before extract_spatial_embeddings()"
-            )
-
-        frame_idx = list(self.preds_dict.keys()).index(
-            os.path.abspath(frame_filepath)
-        )
-        logger.debug(
-            f"Extracting patch embeddings for frame {frame_filepath}..."
-        )
-
-        with torch.no_grad():
-            (
-                _,
-                _,
-                vision_feats,
-                _,
-                feat_sizes,
-            ) = self.sam2_predictor._get_image_feature(
-                self.inference_state,
-                frame_idx,
-                batch_size=1,
-            )
-            vision_feat = vision_feats[feature_level]
-            feat_size = feat_sizes[feature_level]
-
-            # feat shape: (HW, B, C) -> reshape to (B, C, H, W)
-            H, W = feat_size
-            B, C = vision_feat.shape[1], vision_feat.shape[2]
-            spatial_feat = vision_feat.permute(1, 2, 0).view(B, C, H, W)
-            spatial_feat = spatial_feat.squeeze(0).cpu().numpy()
-
-        logger.debug(f"Extracted spatial embeddings for {frame_filepath}")
-        return spatial_feat
 
     def register_source_frame(self, source_filepath, source_detections):
         """
