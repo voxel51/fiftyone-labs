@@ -3,7 +3,7 @@ import tempfile
 import shutil
 from pathlib import Path
 import logging
-from typing import Tuple, Union, Optional, Any
+from typing import Tuple, Union, Optional, Any, List
 from collections import OrderedDict
 import urllib.request
 from urllib.error import URLError
@@ -20,7 +20,8 @@ from .utils import bbox_corners_in_pixel_coords, fit_mask_to_bbox
 logger = logging.getLogger(__name__)
 
 
-SAM2_CHECKPOINT_PATH = None
+SAM2_MODEL_CONFIG_PATH = "configs/sam2/sam2_hiera_t.yaml"
+SAM2_MODEL_CHECKPOINT_PATH_CACHE = None
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,6 @@ class PropagatorSAM2:
         """
         Initialize SAM2 propagator
         """
-        self.model_cfg = "configs/sam2/sam2_hiera_t.yaml"
         self.sam2_predictor: Any = None  # type: ignore[assignment]
         self.inference_state: Any = None  # type: ignore[assignment]
         self.preds_dict = OrderedDict()
@@ -43,6 +43,9 @@ class PropagatorSAM2:
 
     def setup(self):
         import torch
+        from sam2.build_sam import build_sam2_video_predictor
+        import fiftyone.zoo as foz
+
         device = torch.device(
             # "mps" if torch.backends.mps.is_available() else (
             "cuda"
@@ -51,16 +54,12 @@ class PropagatorSAM2:
             # )  # avoid MPS to prevent Metal SIGABRTs
         )
 
-        from sam2.build_sam import build_sam2_video_predictor
-        import fiftyone.zoo as foz
-
         # Load model from zoo to get checkpoint path
-        # (cache to avoid reloading)
-        global SAM2_CHECKPOINT_PATH
-        if SAM2_CHECKPOINT_PATH is None:
+        global SAM2_MODEL_CHECKPOINT_PATH_CACHE
+        if SAM2_MODEL_CHECKPOINT_PATH_CACHE is None:
             zoo_model = foz.load_zoo_model("segment-anything-2-hiera-tiny-image-torch")
-            SAM2_CHECKPOINT_PATH = zoo_model.config.model_path
-            # Delete zoo model to free memory (especially GPU memory)
+            SAM2_MODEL_CHECKPOINT_PATH_CACHE = zoo_model.config.model_path
+            # Delete zoo model to free memory
             del zoo_model
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -68,11 +67,11 @@ class PropagatorSAM2:
         # build_sam2_video_predictor expects a relative config path that Hydra can resolve
         # The config path should be relative to the sam2 package's config directory
         self.sam2_predictor = build_sam2_video_predictor(
-            self.model_cfg, SAM2_CHECKPOINT_PATH, device=str(device)
+            SAM2_MODEL_CONFIG_PATH, SAM2_MODEL_CHECKPOINT_PATH_CACHE, device=str(device)
         )
         logger.info("SAM2 predictor initialized successfully")
 
-    def path_list_to_dir(self, image_path_list):
+    def _path_list_to_dir(self, image_path_list):
         """
         Convert a list of image paths to a temporary directory
         using simlinks, maintaining the order of the images.
@@ -98,7 +97,7 @@ class PropagatorSAM2:
             frame_path_list: List of frame file paths ordered by frame number
             [video file support coming soon]
         """
-        frames_dir = self.path_list_to_dir(frame_path_list)
+        frames_dir = self._path_list_to_dir(frame_path_list)
         try:
             self.inference_state = self.sam2_predictor.init_state(str(frames_dir))
         finally:
@@ -111,121 +110,38 @@ class PropagatorSAM2:
         logger.info(
             f"Inference state initialized with {len(frame_path_list)} frames"
         )
-
-    def register_source_frame(self, source_filepath, source_detections):
-        """
-        Register the source frame and detections with SAM2.
-
-        Args:
-            source_filepath: The source frame file path
-            source_detections: The detections from source_frame (fo.Detections)
-        """
-        if not hasattr(source_detections, "detections"):
-            logger.warning(
-                f"Source detections is either empty, or not a fo.Detections object: {source_detections}"
-            )
-            return
-
-        source_frame_idx = list(self.preds_dict.keys()).index(
-            os.path.abspath(source_filepath)
-        )
-        logger.debug(
-            f"Registering source frame {source_filepath} at index {source_frame_idx}"
-        )
-
-        source_frame = cv2.imread(source_filepath)
-        source_height, source_width = source_frame.shape[:2]
-
-        for detection in source_detections.detections:
-            # Get source bbox and convert to pixel coordinates
-            source_bbox = detection.bounding_box
-            x1, y1, x2, y2 = bbox_corners_in_pixel_coords(
-                source_bbox, source_width, source_height
-            )
-
-            source_mask = detection.mask
-            if source_mask is not None:
-                self.label_type = "segmentation_mask"
-                source_mask_fitted = fit_mask_to_bbox(
-                    source_mask, (y2 - y1, x2 - x1)
-                )
-                # make it relative to the target frame
-                source_mask_framed = np.zeros(
-                    (source_height, source_width), bool
-                )
-                source_mask_framed[y1:y2, x1:x2] = source_mask_fitted
-                source_mask_framed = source_mask_framed.astype(np.uint8)
-
-                self.sam2_predictor.add_new_mask(
-                    inference_state=self.inference_state,
-                    frame_idx=source_frame_idx,
-                    obj_id=SAM2ObjID(label=detection.label, detection_id=detection.id),
-                    mask=source_mask_framed,
-                )
-                logger.debug(f"Added new segmentation mask: {detection.label}")
-            else:
-                self.sam2_predictor.add_new_points_or_box(
-                    inference_state=self.inference_state,
-                    frame_idx=source_frame_idx,
-                    obj_id=SAM2ObjID(label=detection.label, detection_id=detection.id),
-                    box=[x1, y1, x2, y2],
-                )
-                logger.debug(f"Added new bounding box: {detection.label}")
-
-    def propagate_to_all_frames(self):
-        """
-        Propagate detections to all frames in the inference state.
-        Uses SAM2's propagate_in_video API.
-        Returns:
-            None
-            Populates the preds_dict with predictions for each frame
-        """
+    
+    def _sam2_detections_to_fiftyone_detections(self, sam2_detections: Tuple) -> fo.Detections:
         cv2.setNumThreads(1)
+        
+        obj_ids, mask_logits = sam2_detections
+        fiftyone_detections = []
 
-        propagated_to_count = 0
-        for frame_idx, obj_ids, mask_logits in self.sam2_predictor.propagate_in_video(self.inference_state):  # type: ignore[union-attr]
-            target_filepath = list(self.preds_dict.keys())[frame_idx]
-            target_frame = cv2.imread(target_filepath)
-            target_height, target_width = target_frame.shape[:2]
+        for oi, obj_id in enumerate(obj_ids):
+            logits = mask_logits[oi].squeeze(0)
+            pred = (logits > 0).cpu().numpy().astype(
+                np.uint8
+            ) * 255  # threshold at 0
 
-            propagated_detections = []
-            obj_ids = list(obj_ids)
-            logger.debug(
-                f"Found {len(obj_ids)} detections for frame {target_filepath}"
+            # Find new bbox from pred
+            contours, _ = cv2.findContours(
+                pred, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
-            for oi, obj_id in enumerate(obj_ids):
-                logits = mask_logits[oi].squeeze(0)
-                pred = (logits > 0).cpu().numpy().astype(
-                    np.uint8
-                ) * 255  # threshold at 0
-
-                # Find new bbox from pred
-                contours, _ = cv2.findContours(
-                    pred, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-                )
-                if contours:
-                    largest_contour = max(contours, key=cv2.contourArea)
-                    x, y, w, h = cv2.boundingRect(largest_contour)
-                    new_bbox = [
-                        x / target_width,
-                        y / target_height,
-                        w / target_width,
-                        h / target_height,
-                    ]
-                else:
-                    logger.warning("Warning: No contour found for detection")
-                    new_bbox = (0, 0, 0, 0)
+            if contours:
+                largest_contour = max(contours, key=cv2.contourArea)
+                x, y, w, h = cv2.boundingRect(largest_contour)
+                new_bbox = [
+                    x / self.inference_state["video_width"],
+                    y / self.inference_state["video_height"],
+                    w / self.inference_state["video_width"],
+                    h / self.inference_state["video_height"],
+                ]
 
                 if self.label_type == "segmentation_mask":
-                    (
-                        x1_new,
-                        y1_new,
-                        x2_new,
-                        y2_new,
-                    ) = bbox_corners_in_pixel_coords(
-                        new_bbox, target_width, target_height
+                    (x1, y1, x2, y2) = bbox_corners_in_pixel_coords(
+                        new_bbox, self.inference_state["video_width"], self.inference_state["video_height"]
                     )
-                    mask_fitted = pred[y1_new:y2_new, x1_new:x2_new]
+                    mask_fitted = pred[y1:y2, x1:x2]
                     mask_fitted = (
                         mask_fitted.astype(np.float32) / np.max(mask_fitted)
                     ).astype(np.uint8)
@@ -237,14 +153,114 @@ class PropagatorSAM2:
                     mask=mask_fitted,
                     label=obj_id.label,
                 )
-                propagated_detections.append(new_detection)
+                fiftyone_detections.append(new_detection)
+            else:
+                logger.warning("Warning: No contour found for detection")
+        
+        return fo.Detections(detections=fiftyone_detections)
+    
+    def _fiftyone_detections_to_sam2_detections(self, fiftyone_detections: fo.Detections) -> List[Tuple]:
+        """
+        fiftyone_detections is a fo.Detections object
+        Returns: List of tuples of (detection_type, detection_array, Sam2ObjID)
+        """
+        detection_tuples = []
+        if not hasattr(fiftyone_detections, "detections"):
+            logger.warning(
+                f"Source detections is either empty, or not a fo.Detections object: {fiftyone_detections}"
+            )
+            return detection_tuples
+
+        for detection in fiftyone_detections.detections:  # type: ignore[attr-defined]
+            # Get source bbox and convert to pixel coordinates
+            source_bbox = detection.bounding_box
+            x1, y1, x2, y2 = bbox_corners_in_pixel_coords(
+                source_bbox, self.inference_state["video_width"], self.inference_state["video_height"]
+            )
+
+            source_mask = detection.mask
+            if source_mask is not None:
+                source_mask_fitted = fit_mask_to_bbox(
+                    source_mask, (y2 - y1, x2 - x1)
+                )
+                # make it relative to the target frame
+                source_mask_framed = np.zeros(
+                    (self.inference_state["video_height"], self.inference_state["video_width"]), bool
+                )
+                source_mask_framed[y1:y2, x1:x2] = source_mask_fitted
+                source_mask_framed = source_mask_framed.astype(np.uint8)
+                detection_tuples.append((
+                    "segmentation_mask",
+                    source_mask_framed,
+                    SAM2ObjID(label=detection.label, detection_id=detection.id)
+                ))
+            else:
+                detection_tuples.append((
+                    "bounding_box",
+                    [x1, y1, x2, y2],
+                    SAM2ObjID(label=detection.label, detection_id=detection.id)
+                ))
+        
+        return detection_tuples
+
+    def register_source_frame(self, source_filepath, source_detections):
+        """
+        Register the source frame and detections with SAM2.
+
+        Args:
+            source_filepath: The source frame file path
+            source_detections: The detections from source_frame (fo.Detections)
+        """
+
+        source_frame_idx = list(self.preds_dict.keys()).index(
+            os.path.abspath(source_filepath)
+        )
+        logger.debug(
+            f"Registering source frame {source_filepath} at index {source_frame_idx}"
+        )
+
+        for detection_tuple in self._fiftyone_detections_to_sam2_detections(source_detections):
+            detection_type, detection_array, obj_id = detection_tuple
+            if detection_type == "segmentation_mask":
+                self.label_type = "segmentation_mask"
+                self.sam2_predictor.add_new_mask(
+                    inference_state=self.inference_state,
+                    frame_idx=source_frame_idx,
+                    obj_id=obj_id,
+                    mask=detection_array,
+                )
+                logger.debug(f"Added new segmentation mask: {obj_id.label}")
+            else:
+                self.sam2_predictor.add_new_points_or_box(
+                    inference_state=self.inference_state,
+                    frame_idx=source_frame_idx,
+                    obj_id=obj_id,
+                    box=detection_array,
+                )
+                logger.debug(f"Added new bounding box: {obj_id.label}")
+
+    def propagate_to_all_frames(self):
+        """
+        Propagate detections to all frames in the inference state.
+        Uses SAM2's propagate_in_video API.
+        Returns:
+            None
+            Populates the preds_dict with predictions for each frame
+        """
+        propagated_to_count = 0
+        for frame_idx, obj_ids, mask_logits in self.sam2_predictor.propagate_in_video(self.inference_state):  # type: ignore[union-attr]
+            target_filepath = list(self.preds_dict.keys())[frame_idx]
+
+            obj_ids = list(obj_ids)
+            logger.debug(
+                f"Found {len(obj_ids)} detections for frame {target_filepath}"
+            )
+            propagated_detections = self._sam2_detections_to_fiftyone_detections((obj_ids, mask_logits))
 
             logger.debug(
                 f"Propagated {len(propagated_detections)} detections for frame {target_filepath}"
             )
-            self.preds_dict[target_filepath] = fo.Detections(
-                detections=propagated_detections
-            )
+            self.preds_dict[target_filepath] = propagated_detections
             propagated_to_count += 1
 
         logger.info(
