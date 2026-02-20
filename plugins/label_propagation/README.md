@@ -46,9 +46,9 @@ This plugin exposes the following operator for use in the FiftyOne App and the P
 3. Ensure that:
    - Exemplar frames (_currently, must include the first frame of the sequence_) have labels in your chosen `input_annotation_field`.
 4. Open the **Operators** dropdown and search for:
-   - **Name:** `propagate labels`
-   - **Label:** *Propagate Labels From Input Field Operator*
-5. Configure the presentaed field name options
+   - **Name:** `propagate_labels`
+   - **Label:** `Propagate Labels From Input Field Operator`
+5. Configure the presented field name options
 6. Run the operator
 
 On success, you should see a message similar to:<br>
@@ -85,7 +85,7 @@ Assigns exemplar frames to a view using selection methods (currently supports `h
 1. Open your dataset in the FiftyOne App.
 2. Open the **Operators** dropdown and search for:
    - **Name:** `assign_exemplar_frames`
-   - **Label:** *Assign Exemplar Frames Operator*
+   - **Label:** `Assign Exemplar Frames Operator`
 3. Configure the presentaed field name options
 4. Run the operator
 5. The `exemplar_frame_field` will appear on the bottom left with the subfield labels.
@@ -102,7 +102,7 @@ The **Label Propagation** panel provides an interactive UI for the complete work
 1. Open the panel from the FiftyOne App sidebar
 2. Configure the sort field (for image datasets)
 3. **[Optional]** If an exemplar frame field exists and you want to use it, configure it to leverage the ability to interactively propagate through scenes.
-3. **[Optional]** If an exemplar frame field does not exits, run `assign_exemplar_frames` to automatically select exemplar frames.
+3. **[Optional]** If an exemplar frame field does not exist, run `assign_exemplar_frames` to automatically select exemplar frames.
 4. **[Optional]** Select an exemplar to open its propagation view (all frames assigned to that exemplar)
 5. Label one or more frames in the propagation view, storing annotations in your chosen input field
 6. Configure input and output annotation fields, then run `propagate_labels`

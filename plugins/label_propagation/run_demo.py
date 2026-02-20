@@ -37,6 +37,7 @@ def get_partially_labeled_dataset_view(num_scenes):
                 "labels_test" not in dataset_view._dataset.get_field_schema()
             ), "Unable to delete labels_test field"
 
+    if "labels_test" not in dataset_view._dataset.get_field_schema():
         dataset_view._dataset.add_sample_field(
             "labels_test",
             fo.EmbeddedDocumentField,
