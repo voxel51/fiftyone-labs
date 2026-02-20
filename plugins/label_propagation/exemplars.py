@@ -78,21 +78,27 @@ def extract_exemplar_frames(
         curr_exemplar_id = view.first().id
         prev_sample = view[curr_exemplar_id]
         for ii, sample in enumerate(view):
-            if (sample.id == curr_exemplar_id) or frame_discontinuity(prev_sample, sample):
+            if (sample.id == curr_exemplar_id) or frame_discontinuity(
+                prev_sample, sample
+            ):
                 is_exemplar = True
                 exemplar_count += 1
                 curr_exemplar_id = sample.id
             else:
                 is_exemplar = False
-            exemplar_frame_field_values[sample.id] = fo.DynamicEmbeddedDocument(
+            exemplar_frame_field_values[
+                sample.id
+            ] = fo.DynamicEmbeddedDocument(
                 is_exemplar=is_exemplar,
                 exemplar_assignment=[curr_exemplar_id]
                 if not is_exemplar
                 else [],
             )
             prev_sample = sample
-        
-        view.set_values(exemplar_frame_field, exemplar_frame_field_values, key_field="id")
+
+        view.set_values(
+            exemplar_frame_field, exemplar_frame_field_values, key_field="id"
+        )
         view.save()
         logger.info(f"Extracted {exemplar_count} exemplar frames and stored in field '{exemplar_frame_field}'")  # type: ignore[arg-type]
 

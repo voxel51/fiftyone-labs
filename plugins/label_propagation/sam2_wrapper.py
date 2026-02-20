@@ -57,17 +57,21 @@ class PropagatorSAM2:
         # Load model from zoo to get checkpoint path
         global SAM2_MODEL_CHECKPOINT_PATH_CACHE
         if SAM2_MODEL_CHECKPOINT_PATH_CACHE is None:
-            zoo_model = foz.load_zoo_model("segment-anything-2-hiera-tiny-image-torch")
+            zoo_model = foz.load_zoo_model(
+                "segment-anything-2-hiera-tiny-image-torch"
+            )
             SAM2_MODEL_CHECKPOINT_PATH_CACHE = zoo_model.config.model_path
             # Delete zoo model to free memory
             del zoo_model
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-        
+
         # build_sam2_video_predictor expects a relative config path that Hydra can resolve
         # The config path should be relative to the sam2 package's config directory
         self.sam2_predictor = build_sam2_video_predictor(
-            SAM2_MODEL_CONFIG_PATH, SAM2_MODEL_CHECKPOINT_PATH_CACHE, device=str(device)
+            SAM2_MODEL_CONFIG_PATH,
+            SAM2_MODEL_CHECKPOINT_PATH_CACHE,
+            device=str(device),
         )
         logger.info("SAM2 predictor initialized successfully")
 
@@ -99,7 +103,9 @@ class PropagatorSAM2:
         """
         frames_dir = self._path_list_to_dir(frame_path_list)
         try:
-            self.inference_state = self.sam2_predictor.init_state(str(frames_dir))
+            self.inference_state = self.sam2_predictor.init_state(
+                str(frames_dir)
+            )
         finally:
             shutil.rmtree(frames_dir)
             logger.info(f"Cleaned up temporary directory {frames_dir}")
@@ -110,10 +116,12 @@ class PropagatorSAM2:
         logger.info(
             f"Inference state initialized with {len(frame_path_list)} frames"
         )
-    
-    def _sam2_detections_to_fiftyone_detections(self, sam2_detections: Tuple) -> fo.Detections:
+
+    def _sam2_detections_to_fiftyone_detections(
+        self, sam2_detections: Tuple
+    ) -> fo.Detections:
         cv2.setNumThreads(1)
-        
+
         obj_ids, mask_logits = sam2_detections
         fiftyone_detections = []
 
@@ -139,7 +147,9 @@ class PropagatorSAM2:
 
                 if self.label_type == "segmentation_mask":
                     (x1, y1, x2, y2) = bbox_corners_in_pixel_coords(
-                        new_bbox, self.inference_state["video_width"], self.inference_state["video_height"]
+                        new_bbox,
+                        self.inference_state["video_width"],
+                        self.inference_state["video_height"],
                     )
                     mask_fitted = pred[y1:y2, x1:x2]
                     mask_fitted = (
@@ -156,10 +166,12 @@ class PropagatorSAM2:
                 fiftyone_detections.append(new_detection)
             else:
                 logger.warning("Warning: No contour found for detection")
-        
+
         return fo.Detections(detections=fiftyone_detections)
-    
-    def _fiftyone_detections_to_sam2_detections(self, fiftyone_detections: fo.Detections) -> List[Tuple]:
+
+    def _fiftyone_detections_to_sam2_detections(
+        self, fiftyone_detections: fo.Detections
+    ) -> List[Tuple]:
         """
         fiftyone_detections is a fo.Detections object
         Returns: List of tuples of (detection_type, detection_array, Sam2ObjID)
@@ -175,7 +187,9 @@ class PropagatorSAM2:
             # Get source bbox and convert to pixel coordinates
             source_bbox = detection.bounding_box
             x1, y1, x2, y2 = bbox_corners_in_pixel_coords(
-                source_bbox, self.inference_state["video_width"], self.inference_state["video_height"]
+                source_bbox,
+                self.inference_state["video_width"],
+                self.inference_state["video_height"],
             )
 
             source_mask = detection.mask
@@ -185,22 +199,34 @@ class PropagatorSAM2:
                 )
                 # make it relative to the target frame
                 source_mask_framed = np.zeros(
-                    (self.inference_state["video_height"], self.inference_state["video_width"]), bool
+                    (
+                        self.inference_state["video_height"],
+                        self.inference_state["video_width"],
+                    ),
+                    bool,
                 )
                 source_mask_framed[y1:y2, x1:x2] = source_mask_fitted
                 source_mask_framed = source_mask_framed.astype(np.uint8)
-                detection_tuples.append((
-                    "segmentation_mask",
-                    source_mask_framed,
-                    SAM2ObjID(label=detection.label, detection_id=detection.id)
-                ))
+                detection_tuples.append(
+                    (
+                        "segmentation_mask",
+                        source_mask_framed,
+                        SAM2ObjID(
+                            label=detection.label, detection_id=detection.id
+                        ),
+                    )
+                )
             else:
-                detection_tuples.append((
-                    "bounding_box",
-                    [x1, y1, x2, y2],
-                    SAM2ObjID(label=detection.label, detection_id=detection.id)
-                ))
-        
+                detection_tuples.append(
+                    (
+                        "bounding_box",
+                        [x1, y1, x2, y2],
+                        SAM2ObjID(
+                            label=detection.label, detection_id=detection.id
+                        ),
+                    )
+                )
+
         return detection_tuples
 
     def register_source_frame(self, source_filepath, source_detections):
@@ -219,7 +245,9 @@ class PropagatorSAM2:
             f"Registering source frame {source_filepath} at index {source_frame_idx}"
         )
 
-        for detection_tuple in self._fiftyone_detections_to_sam2_detections(source_detections):
+        for detection_tuple in self._fiftyone_detections_to_sam2_detections(
+            source_detections
+        ):
             detection_type, detection_array, obj_id = detection_tuple
             if detection_type == "segmentation_mask":
                 self.label_type = "segmentation_mask"
@@ -255,7 +283,11 @@ class PropagatorSAM2:
             logger.debug(
                 f"Found {len(obj_ids)} detections for frame {target_filepath}"
             )
-            propagated_detections = self._sam2_detections_to_fiftyone_detections((obj_ids, mask_logits))
+            propagated_detections = (
+                self._sam2_detections_to_fiftyone_detections(
+                    (obj_ids, mask_logits)
+                )
+            )
 
             logger.debug(
                 f"Propagated {len(propagated_detections)} detections for frame {target_filepath}"
