@@ -75,17 +75,20 @@ def extract_exemplar_frames(
     if method == "heuristic":
         exemplar_frame_field_values = {}
         exemplar_count = 0
-        curr_exemplar_id = view.first().id
-        prev_sample = view[curr_exemplar_id]
-        for ii, sample in enumerate(view):
-            if (sample.id == curr_exemplar_id) or frame_discontinuity(
-                prev_sample, sample
+        curr_exemplar_id = None
+        prev_sample = None
+        for sample in view:
+            if (
+                (curr_exemplar_id is None)
+                or (prev_sample is None)
+                or frame_discontinuity(prev_sample, sample)
             ):
                 is_exemplar = True
                 exemplar_count += 1
                 curr_exemplar_id = sample.id
             else:
                 is_exemplar = False
+
             exemplar_frame_field_values[
                 sample.id
             ] = fo.DynamicEmbeddedDocument(

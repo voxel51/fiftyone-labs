@@ -226,8 +226,12 @@ class PropagateLabels(foo.Operator):
         total_samples = len(view)
         input_annotation_field = ctx.params.get("input_annotation_field")
         output_annotation_field = ctx.params.get(
-            "output_annotation_field", f"{input_annotation_field}_propagated"
+            "output_annotation_field", None
         )
+        if (output_annotation_field is None) or len(
+            output_annotation_field
+        ) == 0:
+            output_annotation_field = f"{input_annotation_field}_propagated"
         sort_field = ctx.params.get("sort_field", None)
 
         try:
