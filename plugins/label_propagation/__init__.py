@@ -151,13 +151,16 @@ class PropagateLabels(foo.Operator):
         )
 
     def validate_input(self, ctx) -> bool:
-        input_annotation_field = ctx.params.get(
-            "input_annotation_field", "human_labels"
-        )
-        output_annotation_field = ctx.params.get(
-            "output_annotation_field", "human_labels_propagated"
-        )
+        input_annotation_field = ctx.params.get("input_annotation_field", None)
+        if input_annotation_field is None:
+            logger.warning(
+                "Input annotation field is not provided. Please provide a field name to propagate from."
+            )
+            return False
 
+        output_annotation_field = ctx.params.get(
+            "output_annotation_field", input_annotation_field + "_propagated"
+        )
         if output_annotation_field == input_annotation_field:
             logger.warning(
                 f"Output annotation field '{output_annotation_field}' cannot be the same as "
@@ -187,7 +190,6 @@ class PropagateLabels(foo.Operator):
         inputs.str(
             "input_annotation_field",
             label="Annotation Field to Propagate from",
-            default="human_labels",
             view=types.AutocompleteView(choices=field_choices)
             if field_choices
             else None,

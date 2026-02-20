@@ -101,8 +101,17 @@ def test_propagate_labels(partially_labeled_dataset_view):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    detection_area = lambda det: (det.bounding_box[2] * det.bounding_box[3]) if det.bounding_box is not None else 0
-    areas = [sum([detection_area(det) for det in prop]) for prop in partially_labeled_dataset_view.values("labels_test_propagated.detections")]
+    detection_area = (
+        lambda det: (det.bounding_box[2] * det.bounding_box[3])
+        if det.bounding_box is not None
+        else 0
+    )
+    areas = [
+        sum([detection_area(det) for det in prop])
+        for prop in partially_labeled_dataset_view.values(
+            "labels_test_propagated.detections"
+        )
+    ]
     assert np.min(areas) > 0.35
 
     # TODO(neeraja): add evaluation [in a follow-up PR]
