@@ -240,11 +240,17 @@ class LabelPropagationPanel(foo.Panel):
 
         exemplar_children_ids = []
         for exemplar_id in exemplar_ids:
-            exemplar_children_ids.extend(discovered_exemplars[exemplar_id])
+            if exemplar_id in discovered_exemplars:
+                exemplar_children_ids.extend(discovered_exemplars[exemplar_id])
 
         # Create a view with all children sample IDs
         base_view = self.get_base_view(ctx)
         propagation_view = base_view.select(exemplar_children_ids)
+        if len(propagation_view) == 0:
+            ctx.ops.notify(
+                f"Empty propagation view for exemplar {sample_id}; exemplar_list: {exemplar_ids}",
+                variant="warning",
+            )
 
         # Sort by sort_field if it exists
         sort_field = getattr(ctx.panel.state, "sort_field", None)
@@ -384,7 +390,7 @@ class LabelPropagationPanel(foo.Panel):
         panel.str(
             "input_annotation_field",
             label="Input Annotation Field",
-            default=getattr(ctx.panel.state, "input_annotation_field"),
+            default=getattr(ctx.panel.state, "input_annotation_field", None),
             view=types.AutocompleteView(choices=field_choices)
             if field_choices
             else None,
