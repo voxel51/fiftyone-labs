@@ -32,11 +32,6 @@ class AssignExemplarFrames(foo.Operator):
             light_icon="/assets/labs_icon_light.svg",
             dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
-            execution_options=foo.ExecutionOptions(
-                allow_immediate=False,
-                allow_delegation=True,
-                default_choice_to_delegated=True,
-            ),
         )
 
     def resolve_input(self, ctx) -> types.Property:
@@ -143,11 +138,6 @@ class PropagateLabels(foo.Operator):
             light_icon="/assets/labs_icon_light.svg",
             dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
-            execution_options=foo.ExecutionOptions(
-                allow_immediate=False,
-                allow_delegation=True,
-                default_choice_to_delegated=True,
-            ),
         )
 
     def validate_input(self, ctx) -> bool:

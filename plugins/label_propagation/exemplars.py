@@ -33,6 +33,10 @@ def frame_discontinuity(sample_a, sample_b) -> bool:
     img_a = cv2.imread(sample_a.filepath)
     img_b = cv2.imread(sample_b.filepath)
 
+    if img_a is None or img_b is None:
+        logger.warning(f"Failed to read image: {sample_a.filepath if img_a is None else sample_b.filepath}")
+        return True
+
     def get_image_features(img):
         img_resized = cv2.resize(img, TARGET_SIZE)
         gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)

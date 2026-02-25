@@ -73,6 +73,13 @@ class LabelPropagationPanel(foo.Panel):
         self._check_exemplar_field_populated(ctx)
         self._discover_exemplars(ctx)
 
+    def _handle_selection_method_change(self, ctx: Any) -> None:
+        """
+        - Persist the selection method to ctx.panel.state
+        """
+        if "method" in ctx.params:
+            ctx.panel.state.method = ctx.params["method"]
+
     def _check_exemplar_field_populated(self, ctx: Any) -> None:
         """
         - Check if exemplar field exists and is fully populated
@@ -226,7 +233,7 @@ class LabelPropagationPanel(foo.Panel):
             )
             if not exemplar_frame_field:
                 raise RuntimeError(
-                    f"Exemplar frame field {exemplar_frame_field} not set"
+                    f"Exemplar frame field not configured"
                 )
             sample = ctx.dataset[sample_id]
             sample_exemplar_field = sample.get_field(exemplar_frame_field)
@@ -339,6 +346,7 @@ class LabelPropagationPanel(foo.Panel):
             view=method_dropdown,
             default=SUPPORTED_SELECTION_METHODS[0],
             description="Exemplar extraction method",
+            on_change=self._handle_selection_method_change,
         )
         panel.btn(
             "run_assign_exemplar_frames",
@@ -414,7 +422,7 @@ class LabelPropagationPanel(foo.Panel):
             "output_annotation_field",
             label="Output Annotation Field",
             default=default_output_annotation_field,
-            description="Field to store propagated annotations (default: {input_field}_propagated)",
+            description=f"Field to store propagated annotations (default: {input_annotation_field}_propagated)",
             required=False,
             on_change=self._handle_output_annotation_field_change,
         )
