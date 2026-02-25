@@ -75,24 +75,22 @@ class PropagatorSAM2:
         )
         logger.info("SAM2 predictor initialized successfully")
 
-    def _path_list_to_dir(self, image_path_list):
+    def _path_list_to_dir(self, image_path_list, temp_dir):
         """
         Convert a list of image paths to a temporary directory
         using simlinks, maintaining the order of the images.
 
         Args:
             image_path_list: List of image file paths
+            temp_dir: Temporary directory to create the symlinks in
         Returns:
             Temporary directory path
         """
-        tmpdir = Path(tempfile.mkdtemp())
+        temp_dir_path = Path(temp_dir)
         for ii, pp in enumerate(image_path_list):
-            tmp_path = tmpdir / f"{ii:06d}{Path(pp).suffix}"
-            tmp_path.symlink_to(Path(pp).resolve())
-        logger.info(
-            f"Created temporary directory {tmpdir} with {len(image_path_list)} frames"
-        )
-        return tmpdir
+            temp_path = temp_dir_path / f"{ii:06d}{Path(pp).suffix}"
+            temp_path.symlink_to(Path(pp).resolve())
+        return temp_dir_path
 
     def initialize(self, frame_path_list):
         """
@@ -101,14 +99,11 @@ class PropagatorSAM2:
             frame_path_list: List of frame file paths ordered by frame number
             [video file support coming soon]
         """
-        frames_dir = self._path_list_to_dir(frame_path_list)
-        try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_populated = self._path_list_to_dir(frame_path_list, temp_dir)
             self.inference_state = self.sam2_predictor.init_state(
-                str(frames_dir)
+                str(temp_dir_populated)
             )
-        finally:
-            shutil.rmtree(frames_dir)
-            logger.info(f"Cleaned up temporary directory {frames_dir}")
 
         self.preds_dict.clear()
         for idx, frame_path in enumerate(frame_path_list):
@@ -152,6 +147,7 @@ class PropagatorSAM2:
                         self.inference_state["video_height"],
                     )
                     mask_fitted = pred[y1:y2, x1:x2]
+                    # since contours exist, np.max(mask_fitted) must be > 0
                     mask_fitted = (
                         mask_fitted.astype(np.float32) / np.max(mask_fitted)
                     ).astype(np.uint8)
@@ -339,8 +335,6 @@ def propagate_annotations_sam2(
         view: The view to propagate annotations from
         input_annotation_field: The field name of the annotation to copy from the exemplar frame field
         output_annotation_field: The field name of the annotation to save to the target frame
-        evaluate_propagation: Whether to evaluate the propagation against
-                              the input annotation field present in the propagation targets.
         sort_field: Field to sort samples by
         progress: Whether to show progress bars (True/False) or use default (None)
     """
