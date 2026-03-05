@@ -232,9 +232,7 @@ class LabelPropagationPanel(foo.Panel):
                 ctx.panel.state, "exemplar_frame_field", None
             )
             if not exemplar_frame_field:
-                raise RuntimeError(
-                    f"Exemplar frame field not configured"
-                )
+                raise RuntimeError(f"Exemplar frame field not configured")
             sample = ctx.dataset[sample_id]
             sample_exemplar_field = sample.get_field(exemplar_frame_field)
             if not sample_exemplar_field:

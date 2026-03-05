@@ -3,9 +3,9 @@
 Propagate annotations from sparsely labeled "exemplar frames" to all frames in a sequence using SAM-2.
 
 This plugin exposes the following operator for use in the FiftyOne App and the Python SDK.
+
 - `propagate_labels`
 - `assign_exemplar_frames` (WIP)
-
 
 ### Requirements
 
@@ -27,17 +27,18 @@ This plugin exposes the following operator for use in the FiftyOne App and the P
 ### Parameters
 
 - **`input_annotation_field`** (string, required)
+
   - Sample-level field (for an image dataset) or Frame-level field (for a video dataset) containing the labels to propagate
   - Only frames where this field is **non-empty** are treated as exemplars
 
 - **`output_annotation_field`** (string, required)
+
   - Sample-level field (for an image dataset) or Frame-level field (for a video dataset) where the propagated labels will be stored
   - **Must be different** from `input_annotation_field` to prevent accidental overwriting of ground truth annotations
 
 - **`sort_field`** (string, optional)
   - **[For image datasets only]** Field used to sort samples before propagation, intended as a temporal index
   - If the view has this field, frames are ordered by it; otherwise, the operator falls back to the default dataset order
-
 
 ### Usage in the FiftyOne App
 
@@ -71,9 +72,11 @@ Assigns exemplar frames to a view using selection methods (currently supports `h
 ### Parameters
 
 - **`method`** (string, required)
+
   - Selection method: `"heuristic"` (detects scene discontinuities using image correlation)
 
 - **`exemplar_frame_field`** (string, required, default: `"exemplar"`)
+
   - Field name for storing exemplar frame information
   - Creates subfields: `{field}.is_exemplar` (boolean) and `{field}.exemplar_assignment` (list of exemplar IDs)
 
@@ -102,11 +105,11 @@ The **Label Propagation** panel provides an interactive UI for the complete work
 1. Open the panel from the FiftyOne App sidebar
 2. Configure the sort field (for image datasets)
 3. **[Optional]** If an exemplar frame field exists and you want to use it, configure it to leverage the ability to interactively propagate through scenes.
-3. **[Optional]** If an exemplar frame field does not exist, run `assign_exemplar_frames` to automatically select exemplar frames.
-4. **[Optional]** Select an exemplar to open its propagation view (all frames assigned to that exemplar)
-5. Label one or more frames in the propagation view, storing annotations in your chosen input field
-6. Configure input and output annotation fields, then run `propagate_labels`
-7. Inspect results and iterate as needed
+4. **[Optional]** If an exemplar frame field does not exist, run `assign_exemplar_frames` to automatically select exemplar frames.
+5. **[Optional]** Select an exemplar to open its propagation view (all frames assigned to that exemplar)
+6. Label one or more frames in the propagation view, storing annotations in your chosen input field
+7. Configure input and output annotation fields, then run `propagate_labels`
+8. Inspect results and iterate as needed
 
 The panel manages view state, exemplar discovery, and operator execution, streamlining the end-to-end workflow.
 
@@ -116,19 +119,19 @@ The panel manages view state, exemplar discovery, and operator execution, stream
 
 For the next PR
 
-* [ ] Support backward propagation
-* [ ] Add evaluation to the pytests
-* [ ] Additional Exemplar selection methods
+- [ ] Support backward propagation
+- [ ] Add evaluation to the pytests
+- [ ] Additional Exemplar selection methods
 
 Product requirements
 
-* [ ] Supports image datasets
-* [ ] Supports video datasets
-* [ ] Supports dynamically grouped datasets
-* [ ] Propagated labels include instance IDs
-* [ ] < 100ms per frame; faster for single-sample
+- [ ] Supports image datasets
+- [ ] Supports video datasets
+- [ ] Supports dynamically grouped datasets
+- [ ] Propagated labels include instance IDs
+- [ ] < 100ms per frame; faster for single-sample
 
 Other features on the roadmap
 
-* [ ] Single-sample (or few-sample) execution for interactive instance-wise propagation
-* [ ] UX features that support HA (e.g. edit label field, "select" instances)
+- [ ] Single-sample (or few-sample) execution for interactive instance-wise propagation
+- [ ] UX features that support HA (e.g. edit label field, "select" instances)
