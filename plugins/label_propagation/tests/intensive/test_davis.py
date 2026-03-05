@@ -70,7 +70,7 @@ def test_assign_exemplar_frames(dataset_view):
         "dataset": dataset_view._dataset,
         "view": dataset_view,
         "params": {
-            "method": "heuristic",
+            "selection_method": "heuristic",
             "sort_field": "frame_number",
             "exemplar_frame_field": "exemplar_test",
         },
@@ -93,6 +93,7 @@ def test_propagate_labels(partially_labeled_dataset_view):
         "params": {
             "input_annotation_field": "labels_test",
             "output_annotation_field": "labels_test_propagated",
+            "propagation_method": "sam2",
             "sort_field": "frame_number",
         },
     }

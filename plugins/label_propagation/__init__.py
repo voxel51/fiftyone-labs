@@ -12,8 +12,11 @@ import fiftyone as fo
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
 
-from .propagation import propagate_annotations_sam2
-from .exemplars import extract_exemplar_frames, SUPPORTED_SELECTION_METHODS
+from .exemplars import SUPPORTED_SELECTION_METHODS, extract_exemplar_frames
+from .propagation import (
+    SUPPORTED_PROPAGATION_METHODS,
+    propagate_annotations_sam2,
+)
 from .panel import LabelPropagationPanel
 
 
@@ -43,10 +46,10 @@ class AssignExemplarFrames(foo.Operator):
             method_dropdown.add_choice(choice, label=choice)
 
         inputs.enum(
-            "method",
+            "selection_method",
             method_dropdown.values(),
             default=SUPPORTED_SELECTION_METHODS[0],
-            label="Exemplar Extraction Method",
+            label="Exemplar Selection Method",
             view=method_dropdown,
             required=True,
         )
@@ -74,7 +77,7 @@ class AssignExemplarFrames(foo.Operator):
         return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
-        method = ctx.params.get("method")
+        selection_method = ctx.params.get("selection_method")
         exemplar_frame_field = ctx.params.get("exemplar_frame_field")
         sort_field = ctx.params.get("sort_field", None)
 
@@ -115,7 +118,7 @@ class AssignExemplarFrames(foo.Operator):
 
         extract_exemplar_frames(
             view=ctx.target_view(),
-            method=method,
+            method=selection_method,
             exemplar_frame_field=exemplar_frame_field,
             sort_field=sort_field,
         )
@@ -193,6 +196,19 @@ class PropagateLabels(foo.Operator):
             required=False,
         )
 
+        propagation_method_dropdown = types.Dropdown()
+        for choice in SUPPORTED_PROPAGATION_METHODS:
+            propagation_method_dropdown.add_choice(choice, label=choice)
+
+        inputs.enum(
+            "propagation_method",
+            propagation_method_dropdown.values(),
+            default=SUPPORTED_PROPAGATION_METHODS[0],
+            label="Propagation Method",
+            view=propagation_method_dropdown,
+            required=True,
+        )
+
         inputs.str(
             "sort_field",
             label="Field to Sort Samples by",
@@ -222,16 +238,22 @@ class PropagateLabels(foo.Operator):
             output_annotation_field
         ) == 0:
             output_annotation_field = f"{input_annotation_field}_propagated"
+        propagation_method = ctx.params.get("propagation_method")
         sort_field = ctx.params.get("sort_field", None)
 
         try:
-            _ = propagate_annotations_sam2(
-                view=view,
-                input_annotation_field=input_annotation_field,
-                output_annotation_field=output_annotation_field,
-                sort_field=sort_field,
-                progress=True,
-            )
+            if propagation_method == "sam2":
+                _ = propagate_annotations_sam2(
+                    view=view,
+                    input_annotation_field=input_annotation_field,
+                    output_annotation_field=output_annotation_field,
+                    sort_field=sort_field,
+                    progress=True,
+                )
+            else:
+                raise RuntimeError(
+                    f"Unsupported propagation method '{propagation_method}'"
+                )
         except RuntimeError as e:
             error_msg = str(e)
             logger.error(error_msg)

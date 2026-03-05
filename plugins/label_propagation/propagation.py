@@ -8,6 +8,11 @@ import fiftyone.zoo as foz
 logger = logging.getLogger(__name__)
 
 
+SUPPORTED_PROPAGATION_METHODS = [
+    "sam2",
+]
+
+
 def propagate_annotations_sam2(
     view: Union[fo.Dataset, fo.DatasetView],
     input_annotation_field: str,
