@@ -7,6 +7,8 @@ from fiftyone.core.expressions import ViewField as F
 import fiftyone.operators.types as types
 
 from .exemplars import SUPPORTED_SELECTION_METHODS
+from .propagation import SUPPORTED_PROPAGATION_METHODS
+
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +79,17 @@ class LabelPropagationPanel(foo.Panel):
         """
         - Persist the selection method to ctx.panel.state
         """
-        if "method" in ctx.params:
-            ctx.panel.state.method = ctx.params["method"]
+        if "selection_method" in ctx.params:
+            ctx.panel.state.selection_method = ctx.params["selection_method"]
+
+    def _handle_propagation_method_change(self, ctx: Any) -> None:
+        """
+        - Persist the propagation method to ctx.panel.state
+        """
+        if "propagation_method" in ctx.params:
+            ctx.panel.state.propagation_method = ctx.params[
+                "propagation_method"
+            ]
 
     def _check_exemplar_field_populated(self, ctx: Any) -> None:
         """
@@ -173,7 +184,9 @@ class LabelPropagationPanel(foo.Panel):
                     ctx.panel.state, "exemplar_frame_field", None
                 ),
                 "sort_field": getattr(ctx.panel.state, "sort_field", None),
-                "method": getattr(ctx.panel.state, "method", None),
+                "selection_method": getattr(
+                    ctx.panel.state, "selection_method", None
+                ),
             },
         }
         result = foo.execute_operator(
@@ -277,6 +290,11 @@ class LabelPropagationPanel(foo.Panel):
                     ctx.panel.state, "output_annotation_field", None
                 ),
                 "sort_field": getattr(ctx.panel.state, "sort_field", None),
+                "propagation_method": getattr(
+                    ctx.panel.state,
+                    "propagation_method",
+                    None,
+                ),
             },
         }
         result = foo.execute_operator(
@@ -334,16 +352,16 @@ class LabelPropagationPanel(foo.Panel):
                 "#### Exemplar Frame Selection",
                 name="panel_exemplar_selection_header",
             )
-        method_dropdown = types.DropdownView()
+        selection_method_dropdown = types.DropdownView()
         for choice in SUPPORTED_SELECTION_METHODS:
-            method_dropdown.add_choice(choice, label=choice)
+            selection_method_dropdown.add_choice(choice, label=choice)
 
         panel.str(
-            "method",
-            label="Method",
-            view=method_dropdown,
+            "selection_method",
+            label="Exemplar Selection Method",
+            view=selection_method_dropdown,
             default=SUPPORTED_SELECTION_METHODS[0],
-            description="Exemplar extraction method",
+            description="Exemplar selection method",
             on_change=self._handle_selection_method_change,
         )
         panel.btn(
@@ -415,6 +433,18 @@ class LabelPropagationPanel(foo.Panel):
             default_output_annotation_field = getattr(
                 ctx.panel.state, "output_annotation_field", None
             )
+
+        propagation_method_dropdown = types.DropdownView()
+        for choice in SUPPORTED_PROPAGATION_METHODS:
+            propagation_method_dropdown.add_choice(choice, label=choice)
+        panel.str(
+            "propagation_method",
+            label="Propagation Method",
+            view=propagation_method_dropdown,
+            default=SUPPORTED_PROPAGATION_METHODS[0],
+            description="Propagation method",
+            on_change=self._handle_propagation_method_change,
+        )
 
         panel.str(
             "output_annotation_field",
