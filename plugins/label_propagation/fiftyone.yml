@@ -6,7 +6,8 @@ fiftyone:
 url: https://github.com/voxel51/labs/tree/main/plugins/label_propagation
 license: Apache 2.0
 operators:
-  - assign_exemplar_frames
+  - temporal_segmentation
+  - select_exemplars
   - propagate_labels
 panels:
   - label_propagation
