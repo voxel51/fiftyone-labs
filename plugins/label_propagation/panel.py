@@ -3,10 +3,12 @@ from typing import Any
 
 import fiftyone as fo
 import fiftyone.operators as foo
-from fiftyone.core.expressions import ViewField as F
 import fiftyone.operators.types as types
 
-from .exemplars import SUPPORTED_SELECTION_METHODS
+from .exemplars import (
+    SUPPORTED_EXEMPLAR_SELECTION_METHODS,
+    SUPPORTED_SELECTION_METHODS,
+)
 from .propagation import SUPPORTED_PROPAGATION_METHODS
 
 
@@ -25,11 +27,11 @@ class LabelPropagationPanel(foo.Panel):
 
     def on_load(self, ctx: Any) -> None:
         ctx.panel.state.base_view = []
-        ctx.panel.state.exemplar_frame_field = None
+        ctx.panel.state.temporal_segments_field = None
         ctx.panel.state.sort_field = None
-        ctx.panel.state.exemplar_field_exists_and_is_populated = False
-        ctx.panel.state.exemplars = {}
-        ctx.panel.state.selected_exemplar = None
+        ctx.panel.state.temporal_segments_populated = False
+        ctx.panel.state.segments = {}
+        ctx.panel.state.selected_segment = None
         ctx.panel.state.input_annotation_field = None
         ctx.panel.state.output_annotation_field = None
         self.register_base_view(ctx)
@@ -62,18 +64,13 @@ class LabelPropagationPanel(foo.Panel):
         if sort_field:
             ctx.ops.set_view(ctx.view.sort_by(sort_field))
 
-    def _handle_exemplar_frame_field_change(self, ctx: Any) -> None:
-        """
-        - Persist the exemplar frame field to ctx.panel.state
-        - Check if the exemplar field exists and is fully populated
-        """
-        if "exemplar_frame_field" in ctx.params:
-            ctx.panel.state.exemplar_frame_field = ctx.params[
-                "exemplar_frame_field"
+    def _handle_temporal_segments_field_change(self, ctx: Any) -> None:
+        if "temporal_segments_field" in ctx.params:
+            ctx.panel.state.temporal_segments_field = ctx.params[
+                "temporal_segments_field"
             ]
-
-        self._check_exemplar_field_populated(ctx)
-        self._discover_exemplars(ctx)
+        self._check_temporal_segments_populated(ctx)
+        self._discover_segments(ctx)
 
     def _handle_selection_method_change(self, ctx: Any) -> None:
         """
@@ -91,70 +88,40 @@ class LabelPropagationPanel(foo.Panel):
                 "propagation_method"
             ]
 
-    def _check_exemplar_field_populated(self, ctx: Any) -> None:
-        """
-        - Check if exemplar field exists and is fully populated
-        - Persist the result to ctx.panel.state.exemplar_field_exists_and_is_populated
-        """
-        exemplar_frame_field = getattr(
-            ctx.panel.state, "exemplar_frame_field", None
-        )
-        if (
-            not exemplar_frame_field
-            or exemplar_frame_field not in ctx.dataset.get_field_schema()
-        ):
-            ctx.panel.state.exemplar_field_exists_and_is_populated = False
+    def _check_temporal_segments_populated(self, ctx: Any) -> None:
+        field = getattr(ctx.panel.state, "temporal_segments_field", None)
+        if not field or field not in ctx.dataset.get_field_schema():
+            ctx.panel.state.temporal_segments_populated = False
             return
-
         view = ctx.view
-        samples_with_exemplar = view.exists(exemplar_frame_field)
-        count_with_exemplar = len(samples_with_exemplar)
-        count_total = len(view)
-
-        ctx.panel.state.exemplar_field_exists_and_is_populated = (
-            count_with_exemplar == count_total
+        has_segments = view.exists(field)
+        ctx.panel.state.temporal_segments_populated = (
+            len(has_segments) == len(view)
         )
 
-    def _discover_exemplars(self, ctx: Any) -> None:
-        """
-        - Create a dict with exemplar 'id's as keys
-          and a list of their children's 'id's as values.
-          There may be an overlap between the
-          samples assigned to different exemplars.
-        - Persist the result to ctx.panel.state.exemplars
-        - Update the view to only include exemplar samples
-        """
+    def _discover_segments(self, ctx: Any) -> None:
+        """Build {segment_label: [sample_ids]} from temporal_segments classifications."""
         view = self.get_base_view(ctx)
-        exemplar_frame_field = getattr(
-            ctx.panel.state, "exemplar_frame_field", None
-        )
-        if not exemplar_frame_field:
+        field = getattr(ctx.panel.state, "temporal_segments_field", None)
+        if not field:
             return
 
-        exemplar_dict = {}
-        # Find all samples where is_exemplar is True
-        exemplar_samples = view.match(
-            F(f"{exemplar_frame_field}.is_exemplar") == True
-        )
-        # Get all samples with exemplar_assignment containing the exemplar_id
-        for exemplar in exemplar_samples:
-            exemplar_id = exemplar.id
-            samples_with_exemplar = view.match(
-                F(f"{exemplar_frame_field}.exemplar_assignment").contains(
-                    exemplar_id
-                )
-            )
-            children_ids = list(samples_with_exemplar.values("id"))
-            children_ids.append(exemplar_id)
-            exemplar_dict[exemplar_id] = children_ids
+        segment_to_ids = {}
+        for sample in view:
+            segs = sample.get_field(field)
+            if segs and segs.classifications:
+                for cls in segs.classifications:
+                    lbl = cls.label
+                    if lbl not in segment_to_ids:
+                        segment_to_ids[lbl] = []
+                    segment_to_ids[lbl].append(sample.id)
 
-        ctx.panel.state.exemplars = exemplar_dict
-        if len(ctx.panel.state.exemplars) > 0:
+        ctx.panel.state.segments = segment_to_ids
+        if segment_to_ids:
             ctx.ops.notify(
-                f"Found {len(ctx.panel.state.exemplars)} exemplars in {exemplar_frame_field}",
+                f"Found {len(segment_to_ids)} segments in {field}",
                 variant="success",
             )
-        return
 
     def _handle_input_annotation_field_change(self, ctx: Any) -> None:
         """
@@ -174,107 +141,90 @@ class LabelPropagationPanel(foo.Panel):
                 "output_annotation_field"
             ]
 
-    def _run_assign_exemplar_frames(self, ctx: Any) -> None:
-        """Execute AssignExemplarFrames operator."""
+    def _run_temporal_segmentation(self, ctx: Any) -> None:
         op_ctx = {
             "dataset": ctx.dataset,
             "view": ctx.view,
             "params": {
-                "exemplar_frame_field": getattr(
-                    ctx.panel.state, "exemplar_frame_field", None
+                "temporal_segments_field": getattr(
+                    ctx.panel.state, "temporal_segments_field", "temporal_segments"
                 ),
                 "sort_field": getattr(ctx.panel.state, "sort_field", None),
                 "selection_method": getattr(
-                    ctx.panel.state, "selection_method", None
+                    ctx.panel.state, "selection_method", "heuristic"
                 ),
             },
         }
         result = foo.execute_operator(
-            "@51labs/label_propagation/assign_exemplar_frames",
-            op_ctx,
+            "@51labs/label_propagation/temporal_segmentation", op_ctx
         )
-
         if result and hasattr(result, "result"):
-            message = result.result.get("message", "assign_exemplar_frames operator executed")  # type: ignore[attr-defined]
-            ctx.ops.notify(message, variant="success")
+            ctx.ops.notify(result.result.get("message", "Done"), variant="success")
         else:
-            ctx.ops.notify(
-                "Failed to run assign_exemplar_frames operator",
-                variant="error",
-            )
+            ctx.ops.notify("Temporal segmentation failed", variant="error")
+        self._handle_temporal_segments_field_change(ctx)
 
-        self._handle_exemplar_frame_field_change(ctx)
+    def _run_select_exemplars(self, ctx: Any) -> None:
+        op_ctx = {
+            "dataset": ctx.dataset,
+            "view": ctx.view,
+            "params": {
+                "temporal_segments_field": getattr(
+                    ctx.panel.state, "temporal_segments_field", "temporal_segments"
+                ),
+                "sort_field": getattr(ctx.panel.state, "sort_field", None),
+                "exemplar_selection_method": "forward_only",
+            },
+        }
+        result = foo.execute_operator(
+            "@51labs/label_propagation/select_exemplars", op_ctx
+        )
+        if result and hasattr(result, "result"):
+            ctx.ops.notify(result.result.get("message", "Done"), variant="success")
+        else:
+            ctx.ops.notify("Select exemplars failed", variant="error")
+        self._handle_temporal_segments_field_change(ctx)
 
-    def _handle_exemplar_selection(self, ctx: Any) -> None:
-        """
-        - Persist the selected exemplar to ctx.panel.state
-        - Open the propagation view for the selected exemplar
-        """
-        if "selected_exemplar" in ctx.params:
-            ctx.panel.state.selected_exemplar = ctx.params["selected_exemplar"]
-
-        selected_exemplar = getattr(ctx.panel.state, "selected_exemplar", None)
-        if selected_exemplar:
+    def _handle_segment_selection(self, ctx: Any) -> None:
+        if "selected_segment" in ctx.params:
+            ctx.panel.state.selected_segment = ctx.params["selected_segment"]
+        segment_label = getattr(ctx.panel.state, "selected_segment", None)
+        if segment_label:
             try:
-                propagation_view = self._create_propagation_view(
-                    ctx, selected_exemplar
-                )
+                propagation_view = self._create_propagation_view(ctx, segment_label)
                 ctx.ops.set_view(propagation_view)
                 ctx.ops.notify(
-                    f"Opened propagation view for sample {selected_exemplar}",
+                    f"Opened propagation view for segment {segment_label}",
                     variant="info",
                 )
             except Exception as e:
-                error_msg = f"Failed to open propagation view: {str(e)}"
-                logger.error(error_msg, exc_info=True)
-                ctx.ops.notify(error_msg, variant="error")
+                logger.error(str(e), exc_info=True)
+                ctx.ops.notify(f"Failed: {e}", variant="error")
 
     def _create_propagation_view(
-        self,
-        ctx: Any,
-        sample_id: str,
+        self, ctx: Any, segment_label: str
     ) -> fo.DatasetView:
-        """Create a propagation view for the given exemplar.
-
-        Starts from the base view (stored on panel load) to preserve user filters
-        while replacing any existing exemplar filters.
-        """
-        discovered_exemplars = getattr(ctx.panel.state, "exemplars", {})
-        if sample_id not in discovered_exemplars:
-            exemplar_frame_field = getattr(
-                ctx.panel.state, "exemplar_frame_field", None
-            )
-            if not exemplar_frame_field:
-                raise RuntimeError(f"Exemplar frame field not configured")
-            sample = ctx.dataset[sample_id]
-            sample_exemplar_field = sample.get_field(exemplar_frame_field)
-            if not sample_exemplar_field:
-                raise RuntimeError(
-                    f"Exemplar frame field {exemplar_frame_field} not set for {sample_id}"
-                )
-            exemplar_ids = sample_exemplar_field["exemplar_assignment"]
-        else:
-            exemplar_ids = [sample_id]
-
-        exemplar_children_ids = []
-        for exemplar_id in exemplar_ids:
-            if exemplar_id in discovered_exemplars:
-                exemplar_children_ids.extend(discovered_exemplars[exemplar_id])
-
-        # Create a view with all children sample IDs
+        """Create propagation view for samples containing the given segment label."""
+        segments = getattr(ctx.panel.state, "segments", {})
         base_view = self.get_base_view(ctx)
-        propagation_view = base_view.select(exemplar_children_ids)
+        if segment_label in segments:
+            propagation_view = base_view.select(segments[segment_label])
+        else:
+            field = getattr(ctx.panel.state, "temporal_segments_field", None)
+            if not field:
+                raise RuntimeError("Temporal segments field not configured")
+            propagation_view = base_view.match(
+                {f"{field}.classifications": {"$elemMatch": {"label": segment_label}}}
+            )
+
         if len(propagation_view) == 0:
             ctx.ops.notify(
-                f"Empty propagation view for exemplar {sample_id}; exemplar_list: {exemplar_ids}",
+                f"Empty propagation view for segment {segment_label}",
                 variant="warning",
             )
-
-        # Sort by sort_field if it exists
         sort_field = getattr(ctx.panel.state, "sort_field", None)
-        if sort_field:
+        if sort_field and propagation_view.has_field(sort_field):
             propagation_view = propagation_view.sort_by(sort_field)
-
         return propagation_view
 
     def _run_propagate_labels(self, ctx: Any) -> None:
@@ -331,83 +281,63 @@ class LabelPropagationPanel(foo.Panel):
             on_change=self._handle_sort_field_change,
         )
         panel.str(
-            "exemplar_frame_field",
-            label="Exemplar Frame Field",
-            default=getattr(ctx.panel.state, "exemplar_frame_field", None),
-            description="Field name for storing exemplar frame information",
-            on_change=self._handle_exemplar_frame_field_change,
+            "temporal_segments_field",
+            label="Temporal Segments Field",
+            default=getattr(ctx.panel.state, "temporal_segments_field", "temporal_segments"),
+            description="Field storing temporal segment classifications",
+            on_change=self._handle_temporal_segments_field_change,
         )
 
-        # Assign Exemplar Frames section
-        field_exists_and_is_populated = getattr(
-            ctx.panel.state, "exemplar_field_exists_and_is_populated", False
-        )
-        if field_exists_and_is_populated:
-            panel.md(
-                "#### Rerun Exemplar Frame Selection (Optional)",
-                name="panel_exemplar_selection_header_rerun",
-            )
+        populated = getattr(ctx.panel.state, "temporal_segments_populated", False)
+        if populated:
+            panel.md("#### Rerun Temporal Segmentation (Optional)", name="panel_rerun_header")
         else:
-            panel.md(
-                "#### Exemplar Frame Selection",
-                name="panel_exemplar_selection_header",
-            )
+            panel.md("#### Temporal Segmentation", name="panel_segmentation_header")
         selection_method_dropdown = types.DropdownView()
         for choice in SUPPORTED_SELECTION_METHODS:
             selection_method_dropdown.add_choice(choice, label=choice)
-
         panel.str(
             "selection_method",
-            label="Exemplar Selection Method",
+            label="Segmentation Method",
             view=selection_method_dropdown,
             default=SUPPORTED_SELECTION_METHODS[0],
-            description="Exemplar selection method",
             on_change=self._handle_selection_method_change,
         )
         panel.btn(
-            "run_assign_exemplar_frames",
-            label="Run Assign Exemplar Frames",
-            on_click=self._run_assign_exemplar_frames,
+            "run_temporal_segmentation",
+            label="Run Temporal Segmentation",
+            on_click=self._run_temporal_segmentation,
+            variant="contained",
+        )
+        panel.btn(
+            "run_select_exemplars",
+            label="Run Exemplar Selection",
+            on_click=self._run_select_exemplars,
             variant="contained",
         )
 
-        panel.md(
-            "#### Open Propagation View", name="panel_propagation_view_header"
-        )
-        if field_exists_and_is_populated:
-            if (
-                not hasattr(ctx.panel.state, "exemplars")
-                or len(ctx.panel.state.exemplars) == 0
-            ):
-                self._discover_exemplars(ctx)
-            exemplars = getattr(ctx.panel.state, "exemplars", {})
-
-            if exemplars:
-                exemplar_dropdown = types.DropdownView()
-                for exemplar_id, children_ids in exemplars.items():
-                    label = (
-                        f"Exemplar {exemplar_id} [{len(children_ids)} samples]"
+        panel.md("#### Open Propagation View", name="panel_propagation_view_header")
+        if populated:
+            if not getattr(ctx.panel.state, "segments", {}):
+                self._discover_segments(ctx)
+            segments = getattr(ctx.panel.state, "segments", {})
+            if segments:
+                segment_dropdown = types.DropdownView()
+                for seg_label, ids in segments.items():
+                    segment_dropdown.add_choice(
+                        seg_label, label=f"Segment {seg_label} [{len(ids)} samples]"
                     )
-                    exemplar_dropdown.add_choice(exemplar_id, label=label)
-
                 panel.str(
-                    "selected_exemplar",
-                    label="Selected Exemplar",
-                    view=exemplar_dropdown,
+                    "selected_segment",
+                    label="Selected Segment",
+                    view=segment_dropdown,
                     default=None,
-                    on_change=self._handle_exemplar_selection,
+                    on_change=self._handle_segment_selection,
                 )
-
             else:
-                panel.md(
-                    "⚠️ No exemplars found. Run Assign Exemplar Frames first.",
-                    name="no_exemplars_warning",
-                )
+                panel.md("⚠️ No segments found. Run Temporal Segmentation first.", name="no_segments_warning")
         else:
-            panel.md(
-                "⚠️ Exemplar field not found or not fully populated. Run Assign Exemplar Frames first.",
-                name="field_not_populated_warning",
-            )
+            panel.md("⚠️ Temporal segments field not populated. Run Temporal Segmentation first.", name="field_not_populated_warning")
 
         # Propagation section
         panel.md("#### Propagation")
