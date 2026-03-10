@@ -2,10 +2,11 @@
 
 Propagate annotations from sparsely labeled "exemplar frames" to all frames in a sequence using SAM-2.
 
-This plugin exposes the following operator for use in the FiftyOne App and the Python SDK.
+This plugin exposes the following operators for use in the FiftyOne App and the Python SDK.
 
 - `propagate_labels`
-- `assign_exemplar_frames` (WIP)
+- `temporal_segmentation` — populates temporal segment classifications
+- `select_exemplars` — sets exemplar scores on segment classifications
 
 ### Requirements
 
@@ -65,53 +66,42 @@ On success, you should see a message similar to:<br>
 
 ---
 
-## Operator: `assign_exemplar_frames`
+## Operator: `temporal_segmentation`
 
-Assigns exemplar frames to a view using selection methods (currently supports `heuristic`). Exemplar frames are key frames that represent distinct scenes or segments in a sequence.
+Populates a `fo.Classifications` field with temporal segment labels. Each classification has `label` (segment id) and `exemplar_score` (float, initially 0).
 
 ### Parameters
 
-- **`method`** (string, required)
+- **`temporal_segments_field`** (string, default: `"temporal_segments"`) — field to store classifications
+- **`selection_method`** (string, default: `"heuristic"`) — detects scene discontinuities using image correlation
+- **`sort_field`** (string, optional) — field to sort samples before segmentation
 
-  - Selection method: `"heuristic"` (detects scene discontinuities using image correlation)
+## Operator: `select_exemplars`
 
-- **`exemplar_frame_field`** (string, required, default: `"exemplar"`)
+Sets `exemplar_score` on temporal segment classifications. For `forward_only`, the first frame of each segment gets score 1, others get 0.
 
-  - Field name for storing exemplar frame information
-  - Creates subfields: `{field}.is_exemplar` (boolean) and `{field}.exemplar_assignment` (list of exemplar IDs)
+### Parameters
 
+- **`temporal_segments_field`** — same as above
+- **`exemplar_selection_method`** (string, default: `"forward_only"`)
 - **`sort_field`** (string, optional)
-  - Field used to sort samples before exemplar extraction
 
-### Usage in the FiftyOne App
+### Field schema
 
-1. Open your dataset in the FiftyOne App.
-2. Open the **Operators** dropdown and search for:
-   - **Name:** `assign_exemplar_frames`
-   - **Label:** `Assign Exemplar Frames Operator`
-3. Configure the presentaed field name options
-4. Run the operator
-5. The `exemplar_frame_field` will appear on the bottom left with the subfield labels.
-
-On success, you should see a message similar to:<br>
-`Exemplar frames extracted and stored in field <exemplar_frame_field>`
+`{temporal_segments_field}` is `fo.Classifications`. Each `Classification` has:
+- `label` (str) — segment identifier
+- `exemplar_score` (float) — effectiveness as exemplar
 
 ---
 
 ## Interactive Panel: A Typical Workflow
 
-The **Label Propagation** panel provides an interactive UI for the complete workflow:
-
 1. Open the panel from the FiftyOne App sidebar
-2. Configure the sort field (for image datasets)
-3. **[Optional]** If an exemplar frame field exists and you want to use it, configure it to leverage the ability to interactively propagate through scenes.
-4. **[Optional]** If an exemplar frame field does not exist, run `assign_exemplar_frames` to automatically select exemplar frames.
-5. **[Optional]** Select an exemplar to open its propagation view (all frames assigned to that exemplar)
-6. Label one or more frames in the propagation view, storing annotations in your chosen input field
-7. Configure input and output annotation fields, then run `propagate_labels`
-8. Inspect results and iterate as needed
-
-The panel manages view state, exemplar discovery, and operator execution, streamlining the end-to-end workflow.
+2. Configure sort field and temporal segments field
+3. Run **Temporal Segmentation**, then **Exemplar Selection**
+4. Select a segment label to open its propagation view (samples containing that label)
+5. Label frames and run `propagate_labels`
+6. Inspect results and iterate
 
 ---
 

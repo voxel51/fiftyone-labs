@@ -1,6 +1,7 @@
 import logging
-import random
 from typing import Union, Optional
+from collections import defaultdict
+
 import numpy as np
 import cv2
 
@@ -11,8 +12,10 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_SELECTION_METHODS = [
     "heuristic",
-    # TODO(neeraja): add PySceneDetect [in a follow-up PR]
-    # TODO(neeraja): add a fail-safe embedding-based method [in a follow-up PR]
+]
+
+SUPPORTED_EXEMPLAR_SELECTION_METHODS = [
+    "forward_only",
 ]
 
 
@@ -69,49 +72,84 @@ def frame_discontinuity(sample_a, sample_b) -> bool:
     return is_discontinuous
 
 
-def extract_exemplar_frames(
+def extract_temporal_segments(
     view: Union[fo.Dataset, fo.DatasetView],
     method: str,
-    exemplar_frame_field: str,
+    temporal_segments_field: str,
     sort_field: Optional[str] = None,
 ) -> None:
     if sort_field and view.has_field(sort_field):
         view = view.sort_by(sort_field)
 
     if method == "heuristic":
-        exemplar_frame_field_values = {}
-        exemplar_count = 0
-        curr_exemplar_id = None
+        values = {}
+        segment_count = 0
+        curr_segment_id = None
         prev_sample = None
         for sample in view:
             if (
-                (curr_exemplar_id is None)
-                or (prev_sample is None)
+                curr_segment_id is None
+                or prev_sample is None
                 or frame_discontinuity(prev_sample, sample)
             ):
-                is_exemplar = True
-                exemplar_count += 1
-                curr_exemplar_id = sample.id
-            else:
-                is_exemplar = False
+                segment_count += 1
+                curr_segment_id = sample.id
 
-            exemplar_frame_field_values[
-                sample.id
-            ] = fo.DynamicEmbeddedDocument(
-                is_exemplar=is_exemplar,
-                exemplar_assignment=[curr_exemplar_id]
-                if not is_exemplar
-                else [],
+            values[sample.id] = fo.Classifications(
+                classifications=[
+                    fo.Classification(label=str(curr_segment_id), exemplar_score=0.0)
+                ]
             )
             prev_sample = sample
 
-        view.set_values(
-            exemplar_frame_field, exemplar_frame_field_values, key_field="id"
-        )
+        view.set_values(temporal_segments_field, values, key_field="id")
         view.save()
-        logger.info(f"Extracted {exemplar_count} exemplar frames and stored in field '{exemplar_frame_field}'")  # type: ignore[arg-type]
-
+        logger.info(
+            f"Extracted {segment_count} temporal segments into '{temporal_segments_field}'"
+        )
     else:
         raise NotImplementedError(f"Unsupported method: {method}")
 
-    return
+
+def select_exemplars(
+    view: Union[fo.Dataset, fo.DatasetView],
+    temporal_segments_field: str,
+    method: str,
+    sort_field: Optional[str] = None,
+) -> None:
+    if sort_field and view.has_field(sort_field):
+        view = view.sort_by(sort_field)
+
+    if method != "forward_only":
+        raise NotImplementedError(f"Unsupported method: {method}")
+
+    segment_to_samples = defaultdict(list)
+    for sample in view:
+        segs = sample.get_field(temporal_segments_field)
+        if segs and segs.classifications:
+            for cls in segs.classifications:
+                segment_to_samples[cls.label].append(sample)
+
+    updates = {}
+    for segment_label, samples in segment_to_samples.items():
+        first_id = samples[0].id
+        for s in samples:
+            segs = s.get_field(temporal_segments_field)
+            if not segs or not segs.classifications:
+                continue
+            new_classes = []
+            for cls in segs.classifications:
+                if cls.label == segment_label:
+                    exemplar_score = 1.0 if s.id == first_id else 0.0
+                    new_classes.append(
+                        fo.Classification(
+                            label=cls.label, exemplar_score=exemplar_score
+                        )
+                    )
+                else:
+                    new_classes.append(cls)
+            updates[s.id] = fo.Classifications(classifications=new_classes)
+
+    view.set_values(temporal_segments_field, updates, key_field="id")
+    view.save()
+    logger.info(f"Set exemplar scores in '{temporal_segments_field}'")

@@ -12,7 +12,12 @@ import fiftyone as fo
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
 
-from .exemplars import SUPPORTED_SELECTION_METHODS, extract_exemplar_frames
+from .exemplars import (
+    SUPPORTED_EXEMPLAR_SELECTION_METHODS,
+    SUPPORTED_SELECTION_METHODS,
+    extract_temporal_segments,
+    select_exemplars,
+)
 from .propagation import (
     SUPPORTED_PROPAGATION_METHODS,
     propagate_annotations_sam2,
@@ -23,15 +28,15 @@ from .panel import LabelPropagationPanel
 logger = logging.getLogger(__name__)
 
 
-class AssignExemplarFrames(foo.Operator):
+class TemporalSegmentation(foo.Operator):
     version = "1.0.0"
 
     @property
     def config(self) -> foo.OperatorConfig:
         return foo.OperatorConfig(
-            name="assign_exemplar_frames",
-            label="Assign Exemplar Frames Operator",
-            description="Assign exemplar frames to frames of a video",
+            name="temporal_segmentation",
+            label="Temporal Segmentation",
+            description="Populate temporal segments field with class labels",
             light_icon="/assets/labs_icon_light.svg",
             dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
@@ -49,16 +54,15 @@ class AssignExemplarFrames(foo.Operator):
             "selection_method",
             method_dropdown.values(),
             default=SUPPORTED_SELECTION_METHODS[0],
-            label="Exemplar Selection Method",
+            label="Segmentation Method",
             view=method_dropdown,
             required=True,
         )
 
-        # exemplar frame field
         inputs.str(
-            "exemplar_frame_field",
-            label="Exemplar Frame Information Field",
-            default="exemplar",
+            "temporal_segments_field",
+            label="Temporal Segments Field",
+            default="temporal_segments",
             required=True,
         )
 
@@ -78,53 +82,106 @@ class AssignExemplarFrames(foo.Operator):
 
     def execute(self, ctx) -> dict:
         selection_method = ctx.params.get("selection_method")
-        exemplar_frame_field = ctx.params.get("exemplar_frame_field")
+        temporal_segments_field = ctx.params.get("temporal_segments_field")
         sort_field = ctx.params.get("sort_field", None)
 
-        # Check if field exists and validate/convert its type
         dataset = ctx.dataset
-        if exemplar_frame_field in dataset.get_field_schema():
-            logger.debug(
-                f"Exemplar frame field exists: {exemplar_frame_field}"
-            )
-            field_type_name = type(
-                dataset.get_field_schema()[exemplar_frame_field]
-            ).__name__
-            if field_type_name != "EmbeddedDocumentField":
-                logger.warning(
-                    f"Deleting exemplar frame field of incorrect type: {exemplar_frame_field}"
-                )
-                dataset.delete_sample_field(
-                    exemplar_frame_field, error_level=2
-                )
+        schema = dataset.get_field_schema()
+        if temporal_segments_field in schema:
+            ft = type(schema[temporal_segments_field]).__name__
+            if ft != "EmbeddedDocumentField":
+                dataset.delete_sample_field(temporal_segments_field, error_level=2)
 
-        # Ensure the exemplar field exists and declare nested fields for proper schema support
-        # Use DynamicEmbeddedDocument to allow dynamic fields
-        if exemplar_frame_field not in dataset.get_field_schema():
-            logger.info(f"Adding exemplar frame field: {exemplar_frame_field}")
+        if temporal_segments_field not in dataset.get_field_schema():
             dataset.add_sample_field(
-                exemplar_frame_field,
+                temporal_segments_field,
                 fo.EmbeddedDocumentField,
-                embedded_doc_type=fo.DynamicEmbeddedDocument,
+                embedded_doc_type=fo.Classifications,
             )
             dataset.add_sample_field(
-                f"{exemplar_frame_field}.is_exemplar", fo.BooleanField
-            )
-            dataset.add_sample_field(
-                f"{exemplar_frame_field}.exemplar_assignment",
-                fo.ListField,
-                subfield=fo.ObjectIdField,
+                f"{temporal_segments_field}.classifications.exemplar_score",
+                fo.FloatField,
             )
 
-        extract_exemplar_frames(
+        extract_temporal_segments(
             view=ctx.target_view(),
             method=selection_method,
-            exemplar_frame_field=exemplar_frame_field,
+            temporal_segments_field=temporal_segments_field,
             sort_field=sort_field,
         )
 
         return {
-            "message": f"Exemplar frames extracted and stored in field '{exemplar_frame_field}'",
+            "message": f"Temporal segments stored in '{temporal_segments_field}'",
+            "samples_processed": len(ctx.target_view()),
+        }
+
+
+class SelectExemplars(foo.Operator):
+    version = "1.0.0"
+
+    @property
+    def config(self) -> foo.OperatorConfig:
+        return foo.OperatorConfig(
+            name="select_exemplars",
+            label="Select Exemplars",
+            description="Set exemplar scores on temporal segment classifications",
+            light_icon="/assets/labs_icon_light.svg",
+            dark_icon="/assets/labs_icon_dark.svg",
+            dynamic=True,
+        )
+
+    def resolve_input(self, ctx) -> types.Property:
+        inputs = types.Object()
+        inputs.view_target(ctx)
+
+        inputs.str(
+            "temporal_segments_field",
+            label="Temporal Segments Field",
+            default="temporal_segments",
+            required=True,
+        )
+
+        method_dropdown = types.Dropdown()
+        for choice in SUPPORTED_EXEMPLAR_SELECTION_METHODS:
+            method_dropdown.add_choice(choice, label=choice)
+
+        inputs.enum(
+            "exemplar_selection_method",
+            method_dropdown.values(),
+            default=SUPPORTED_EXEMPLAR_SELECTION_METHODS[0],
+            label="Exemplar Selection Method",
+            view=method_dropdown,
+            required=True,
+        )
+
+        schema = ctx.dataset.get_field_schema()
+        field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
+        inputs.str(
+            "sort_field",
+            label="Field to Sort Samples by",
+            default="frame_number",
+            view=types.AutocompleteView(choices=field_choices)
+            if field_choices
+            else None,
+            required=False,
+        )
+
+        return types.Property(inputs)
+
+    def execute(self, ctx) -> dict:
+        temporal_segments_field = ctx.params.get("temporal_segments_field")
+        exemplar_selection_method = ctx.params.get("exemplar_selection_method")
+        sort_field = ctx.params.get("sort_field", None)
+
+        select_exemplars(
+            view=ctx.target_view(),
+            temporal_segments_field=temporal_segments_field,
+            method=exemplar_selection_method,
+            sort_field=sort_field,
+        )
+
+        return {
+            "message": f"Exemplar scores set in '{temporal_segments_field}'",
             "samples_processed": len(ctx.target_view()),
         }
 
@@ -273,6 +330,7 @@ class PropagateLabels(foo.Operator):
 
 
 def register(p):
-    p.register(AssignExemplarFrames)
+    p.register(TemporalSegmentation)
+    p.register(SelectExemplars)
     p.register(PropagateLabels)
     p.register(LabelPropagationPanel)
