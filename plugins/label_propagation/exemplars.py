@@ -6,12 +6,15 @@ import numpy as np
 import cv2
 
 import fiftyone as fo
+import fiftyone.core.odm.document as fcod
 
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_SELECTION_METHODS = [
+SUPPORTED_TEMPORAL_SEGMENTATION_METHODS = [
     "heuristic",
+    # TODO(neeraja): add PySceneDetect method [in a follow-up PR]
+    # TODO(neeraja): add a fail-safe embedding-based method [in a follow-up PR]
 ]
 
 SUPPORTED_EXEMPLAR_SELECTION_METHODS = [
@@ -81,34 +84,34 @@ def extract_temporal_segments(
     if sort_field and view.has_field(sort_field):
         view = view.sort_by(sort_field)
 
+    segment_labels = defaultdict(fo.Classifications)
+
     if method == "heuristic":
-        values = {}
         segment_count = 0
-        curr_segment_id = None
+        curr_segment_label = None
         prev_sample = None
         for sample in view:
             if (
-                curr_segment_id is None
-                or prev_sample is None
+                prev_sample is None
                 or frame_discontinuity(prev_sample, sample)
             ):
                 segment_count += 1
-                curr_segment_id = sample.id
+                curr_segment_label = fcod.ObjectId()
 
-            values[sample.id] = fo.Classifications(
+            segment_labels[sample.id] = fo.Classifications(
                 classifications=[
-                    fo.Classification(label=str(curr_segment_id), exemplar_score=0.0)
+                    fo.Classification(label=str(curr_segment_label), exemplar_score=0.0)
                 ]
             )
             prev_sample = sample
-
-        view.set_values(temporal_segments_field, values, key_field="id")
-        view.save()
-        logger.info(
-            f"Extracted {segment_count} temporal segments into '{temporal_segments_field}'"
-        )
     else:
         raise NotImplementedError(f"Unsupported method: {method}")
+
+    view.set_values(temporal_segments_field, segment_labels, key_field="id")
+    view.save()
+    logger.info(
+        f"Extracted {segment_count} temporal segments into '{temporal_segments_field}'"
+    )
 
 
 def select_exemplars(
@@ -117,39 +120,32 @@ def select_exemplars(
     method: str,
     sort_field: Optional[str] = None,
 ) -> None:
-    if sort_field and view.has_field(sort_field):
-        view = view.sort_by(sort_field)
+    if method == "forward_only":
+        """
+        We assume that labels are only propagated forward.
+        Hence, the first sample in each segment gets a score of 1.0,
+        and the rest get 0.0s.
+        """
+        segment_ids = set(np.array(
+            view.values(f"{temporal_segments_field}.classifications.label")
+        ).flatten())
+        for seg_id in segment_ids:
+            seg_view = view.match(
+                {f"{temporal_segments_field}.classifications": {"$elemMatch": {"label": seg_id}}}
+            )
 
-    if method != "forward_only":
+            if seg_view.has_field(sort_field):
+                seg_view = seg_view.sort_by(sort_field)
+            
+            first_sample = seg_view.first()
+            first_sample_segments = first_sample.get_field(temporal_segments_field).classifications
+            for seg in first_sample_segments:
+                if seg.label == seg_id:
+                    seg.exemplar_score = 1.0
+            first_sample[temporal_segments_field].classifications = first_sample_segments
+            first_sample.save()
+    else:
         raise NotImplementedError(f"Unsupported method: {method}")
-
-    segment_to_samples = defaultdict(list)
-    for sample in view:
-        segs = sample.get_field(temporal_segments_field)
-        if segs and segs.classifications:
-            for cls in segs.classifications:
-                segment_to_samples[cls.label].append(sample)
-
-    updates = {}
-    for segment_label, samples in segment_to_samples.items():
-        first_id = samples[0].id
-        for s in samples:
-            segs = s.get_field(temporal_segments_field)
-            if not segs or not segs.classifications:
-                continue
-            new_classes = []
-            for cls in segs.classifications:
-                if cls.label == segment_label:
-                    exemplar_score = 1.0 if s.id == first_id else 0.0
-                    new_classes.append(
-                        fo.Classification(
-                            label=cls.label, exemplar_score=exemplar_score
-                        )
-                    )
-                else:
-                    new_classes.append(cls)
-            updates[s.id] = fo.Classifications(classifications=new_classes)
-
-    view.set_values(temporal_segments_field, updates, key_field="id")
+    
     view.save()
     logger.info(f"Set exemplar scores in '{temporal_segments_field}'")

@@ -7,7 +7,7 @@ import fiftyone.operators.types as types
 
 from .exemplars import (
     SUPPORTED_EXEMPLAR_SELECTION_METHODS,
-    SUPPORTED_SELECTION_METHODS,
+    SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
 )
 from .propagation import SUPPORTED_PROPAGATION_METHODS
 
@@ -72,12 +72,12 @@ class LabelPropagationPanel(foo.Panel):
         self._check_temporal_segments_populated(ctx)
         self._discover_segments(ctx)
 
-    def _handle_selection_method_change(self, ctx: Any) -> None:
+    def _handle_temporal_segmentation_method_change(self, ctx: Any) -> None:
         """
         - Persist the selection method to ctx.panel.state
         """
         if "selection_method" in ctx.params:
-            ctx.panel.state.selection_method = ctx.params["selection_method"]
+            ctx.panel.state.temporal_segmentation_method = ctx.params["temporal_segmentation_method"]
 
     def _handle_propagation_method_change(self, ctx: Any) -> None:
         """
@@ -150,8 +150,8 @@ class LabelPropagationPanel(foo.Panel):
                     ctx.panel.state, "temporal_segments_field", "temporal_segments"
                 ),
                 "sort_field": getattr(ctx.panel.state, "sort_field", None),
-                "selection_method": getattr(
-                    ctx.panel.state, "selection_method", "heuristic"
+                "temporal_segmentation_method": getattr(
+                    ctx.panel.state, "temporal_segmentation_method", "heuristic"
                 ),
             },
         }
@@ -173,7 +173,7 @@ class LabelPropagationPanel(foo.Panel):
                     ctx.panel.state, "temporal_segments_field", "temporal_segments"
                 ),
                 "sort_field": getattr(ctx.panel.state, "sort_field", None),
-                "exemplar_selection_method": "forward_only",
+                "exemplar_selection_method": "forward_only",  # TODO: Make this configurable
             },
         }
         result = foo.execute_operator(
@@ -293,15 +293,15 @@ class LabelPropagationPanel(foo.Panel):
             panel.md("#### Rerun Temporal Segmentation (Optional)", name="panel_rerun_header")
         else:
             panel.md("#### Temporal Segmentation", name="panel_segmentation_header")
-        selection_method_dropdown = types.DropdownView()
-        for choice in SUPPORTED_SELECTION_METHODS:
-            selection_method_dropdown.add_choice(choice, label=choice)
+        temporal_segmentation_method_dropdown = types.DropdownView()
+        for choice in SUPPORTED_TEMPORAL_SEGMENTATION_METHODS:
+            temporal_segmentation_method_dropdown.add_choice(choice, label=choice)
         panel.str(
-            "selection_method",
+            "temporal_segmentation_method",
             label="Segmentation Method",
-            view=selection_method_dropdown,
-            default=SUPPORTED_SELECTION_METHODS[0],
-            on_change=self._handle_selection_method_change,
+            view=temporal_segmentation_method_dropdown,
+            default=SUPPORTED_TEMPORAL_SEGMENTATION_METHODS[0],
+            on_change=self._handle_temporal_segmentation_method_change,
         )
         panel.btn(
             "run_temporal_segmentation",
