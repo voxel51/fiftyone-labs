@@ -13,8 +13,8 @@ import fiftyone.operators as foo
 import fiftyone.operators.types as types
 
 from .exemplars import (
+    SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
     SUPPORTED_EXEMPLAR_SELECTION_METHODS,
-    SUPPORTED_SELECTION_METHODS,
     extract_temporal_segments,
     select_exemplars,
 )
@@ -36,7 +36,7 @@ class TemporalSegmentation(foo.Operator):
         return foo.OperatorConfig(
             name="temporal_segmentation",
             label="Temporal Segmentation",
-            description="Populate temporal segments field with class labels",
+            description="Label chunks of frames into temporal segments",
             light_icon="/assets/labs_icon_light.svg",
             dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
@@ -47,13 +47,13 @@ class TemporalSegmentation(foo.Operator):
         inputs.view_target(ctx)
 
         method_dropdown = types.Dropdown()
-        for choice in SUPPORTED_SELECTION_METHODS:
+        for choice in SUPPORTED_TEMPORAL_SEGMENTATION_METHODS:
             method_dropdown.add_choice(choice, label=choice)
 
         inputs.enum(
-            "selection_method",
+            "temporal_segmentation_method",
             method_dropdown.values(),
-            default=SUPPORTED_SELECTION_METHODS[0],
+            default=SUPPORTED_TEMPORAL_SEGMENTATION_METHODS[0],
             label="Segmentation Method",
             view=method_dropdown,
             required=True,
@@ -81,7 +81,7 @@ class TemporalSegmentation(foo.Operator):
         return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
-        selection_method = ctx.params.get("selection_method")
+        temporal_segmentation_method = ctx.params.get("temporal_segmentation_method")
         temporal_segments_field = ctx.params.get("temporal_segments_field")
         sort_field = ctx.params.get("sort_field", None)
 
@@ -90,6 +90,9 @@ class TemporalSegmentation(foo.Operator):
         if temporal_segments_field in schema:
             ft = type(schema[temporal_segments_field]).__name__
             if ft != "EmbeddedDocumentField":
+                logger.warning(
+                    f"Found existing field '{temporal_segments_field}' with type '{ft}'. This will be overwritten."
+                )
                 dataset.delete_sample_field(temporal_segments_field, error_level=2)
 
         if temporal_segments_field not in dataset.get_field_schema():
@@ -105,7 +108,7 @@ class TemporalSegmentation(foo.Operator):
 
         extract_temporal_segments(
             view=ctx.target_view(),
-            method=selection_method,
+            method=temporal_segmentation_method,
             temporal_segments_field=temporal_segments_field,
             sort_field=sort_field,
         )
@@ -129,6 +132,24 @@ class SelectExemplars(foo.Operator):
             dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
         )
+    
+    def validate_input(self, ctx) -> bool:
+        temporal_segments_field = ctx.params.get("temporal_segments_field")
+        dataset = ctx.dataset
+        schema = dataset.get_field_schema()
+        if temporal_segments_field in schema:
+            ft = type(schema[temporal_segments_field]).__name__
+            if ft != "EmbeddedDocumentField":
+                logger.warning(
+                    f"'{temporal_segments_field}' field exists but with type '{ft}'. temporal_segments_field should be of type fo.EmbeddedDocumentField."
+                )
+                return False
+        else:
+            logger.warning(
+                f"'{temporal_segments_field}' field not found in the dataset. temporal_segments_field should exist and be of type fo.EmbeddedDocumentField."
+            )
+            return False
+        return True
 
     def resolve_input(self, ctx) -> types.Property:
         inputs = types.Object()
@@ -169,6 +190,12 @@ class SelectExemplars(foo.Operator):
         return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
+        if not self.validate_input(ctx):
+            return {
+                "message": "Validation failed",
+                "samples_processed": 0,
+            }
+
         temporal_segments_field = ctx.params.get("temporal_segments_field")
         exemplar_selection_method = ctx.params.get("exemplar_selection_method")
         sort_field = ctx.params.get("sort_field", None)
