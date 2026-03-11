@@ -91,24 +91,15 @@ def partially_labeled_video_dataset_view(video_dataset_view):
     return video_dataset_view
 
 
-@pytest.fixture
-def image_dataset_view_without_temporal_segments(image_dataset_view):
-    """Ensure temporal_segments_test is absent before segmentation tests."""
-    dataset = image_dataset_view._dataset
-    if "temporal_segments_test" in dataset.get_field_schema():
-        dataset.delete_sample_field("temporal_segments_test", error_level=2)
-    return image_dataset_view
-
-
-def test_temporal_segmentation(image_dataset_view_without_temporal_segments):
-    view = image_dataset_view_without_temporal_segments
+@pytest.mark.dependency()
+def test_temporal_segmentation(image_dataset_view):
     ctx = {
-        "dataset": view._dataset,
-        "view": view,
+        "dataset": image_dataset_view._dataset,
+        "view": image_dataset_view,
         "params": {
-            "selection_method": "heuristic",
+            "temporal_segmentation_method": "heuristic",
             "temporal_segments_field": "temporal_segments_test",
-            "sort_field": "frame_number",
+            "sort_field": "new_frame_number",
         },
     }
     result = foo.execute_operator(
@@ -116,53 +107,40 @@ def test_temporal_segmentation(image_dataset_view_without_temporal_segments):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    classifications = view.values("temporal_segments_test")
-    assert all(c is not None and c.classifications for c in classifications)
-    labels = [c.classifications[0].label for c in classifications if c]
-    assert len(set(labels)) > 0
-    exemplar_scores = [
-        getattr(c.classifications[0], "exemplar_score", 0)
-        for c in classifications
-        if c and c.classifications
-    ]
-    assert all(s == 0 for s in exemplar_scores)
+    classifications = image_dataset_view.values("temporal_segments_test")
+    assert all(cc is not None and cc.classifications for cc in classifications)
+
+    labels = image_dataset_view.values("temporal_segments_test.classifications.label")
+    assert all(len(ll) == 1 for ll in labels)
+    assert len(set(np.array(labels).flatten())) == 1
+
+    exemplar_scores = image_dataset_view.values("temporal_segments_test.classifications.exemplar_score")
+    assert set(np.array(exemplar_scores).flatten()) == {0}
 
 
-def test_select_exemplars(image_dataset_view_without_temporal_segments):
-    view = image_dataset_view_without_temporal_segments
-    seg_ctx = {
-        "dataset": view._dataset,
-        "view": view,
-        "params": {
-            "selection_method": "heuristic",
-            "temporal_segments_field": "temporal_segments_test",
-            "sort_field": "frame_number",
-        },
-    }
-    foo.execute_operator("@51labs/label_propagation/temporal_segmentation", seg_ctx)
-
-    sel_ctx = {
-        "dataset": view._dataset,
-        "view": view,
+@pytest.mark.dependency(depends=["test_temporal_segmentation"])
+def test_temporal_exemplar_selection(image_dataset_view):
+    ctx = {
+        "dataset": image_dataset_view._dataset,
+        "view": image_dataset_view,
         "params": {
             "exemplar_selection_method": "forward_only",
             "temporal_segments_field": "temporal_segments_test",
-            "sort_field": "frame_number",
+            "sort_field": "new_frame_number",
         },
     }
     result = foo.execute_operator(
-        "@51labs/label_propagation/select_exemplars", sel_ctx
+        "@51labs/label_propagation/select_exemplars", ctx
     )
     print(result.result["message"])  # type: ignore[index]
 
-    classifications = view.values("temporal_segments_test")
+    temporal_classifications = image_dataset_view.values("temporal_segments_test")
     exemplar_scores = [
         getattr(c.classifications[0], "exemplar_score", 0)
-        for c in classifications
+        for c in temporal_classifications
         if c and c.classifications
     ]
-    assert sum(exemplar_scores) >= 1
-    assert np.mean(exemplar_scores) < 0.33
+    assert np.abs(np.mean(exemplar_scores) - 1.0/len(temporal_classifications)) < 1e-6
 
 
 def test_propagate_labels_image(partially_labeled_image_dataset_view):
@@ -173,7 +151,7 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
             "input_annotation_field": "labels_test",
             "output_annotation_field": "labels_test_propagated",
             "propagation_method": "sam2",
-            "sort_field": "frame_number",
+            "sort_field": "new_frame_number",
         },
     }
 
