@@ -17,8 +17,9 @@ SUPPORTED_TEMPORAL_SEGMENTATION_METHODS = [
     # TODO(neeraja): add a fail-safe embedding-based method [in a follow-up PR]
 ]
 
-SUPPORTED_EXEMPLAR_SELECTION_METHODS = [
-    "forward_only",
+SUPPORTED_EXEMPLAR_SCORING_METHODS = [
+    "first_frame",
+    # TODO(neeraja): add more options post enabling bi-directional propagation
 ]
 
 
@@ -120,7 +121,7 @@ def select_exemplars(
     method: str,
     sort_field: Optional[str] = None,
 ) -> None:
-    if method == "forward_only":
+    if method == "first_frame":
         """
         We assume that labels are only propagated forward.
         Hence, the first sample in each segment gets a score of 1.0,
