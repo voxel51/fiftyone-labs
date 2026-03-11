@@ -14,7 +14,7 @@ import fiftyone.operators.types as types
 
 from .exemplars import (
     SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
-    SUPPORTED_EXEMPLAR_SELECTION_METHODS,
+    SUPPORTED_EXEMPLAR_SCORING_METHODS,
     extract_temporal_segments,
     select_exemplars,
 )
@@ -62,7 +62,7 @@ class TemporalSegmentation(foo.Operator):
         inputs.str(
             "temporal_segments_field",
             label="Temporal Segments Field",
-            default="temporal_segments",
+            default=None,
             required=True,
         )
 
@@ -158,18 +158,18 @@ class SelectExemplars(foo.Operator):
         inputs.str(
             "temporal_segments_field",
             label="Temporal Segments Field",
-            default="temporal_segments",
+            default=None,
             required=True,
         )
 
         method_dropdown = types.Dropdown()
-        for choice in SUPPORTED_EXEMPLAR_SELECTION_METHODS:
+        for choice in SUPPORTED_EXEMPLAR_SCORING_METHODS:
             method_dropdown.add_choice(choice, label=choice)
 
         inputs.enum(
-            "exemplar_selection_method",
+            "exemplar_scoring_method",
             method_dropdown.values(),
-            default=SUPPORTED_EXEMPLAR_SELECTION_METHODS[0],
+            default=SUPPORTED_EXEMPLAR_SCORING_METHODS[0],
             label="Exemplar Selection Method",
             view=method_dropdown,
             required=True,
@@ -197,13 +197,13 @@ class SelectExemplars(foo.Operator):
             }
 
         temporal_segments_field = ctx.params.get("temporal_segments_field")
-        exemplar_selection_method = ctx.params.get("exemplar_selection_method")
+        exemplar_scoring_method = ctx.params.get("exemplar_scoring_method")
         sort_field = ctx.params.get("sort_field", None)
 
         select_exemplars(
             view=ctx.target_view(),
             temporal_segments_field=temporal_segments_field,
-            method=exemplar_selection_method,
+            method=exemplar_scoring_method,
             sort_field=sort_field,
         )
 

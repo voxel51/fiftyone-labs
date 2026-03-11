@@ -46,6 +46,7 @@ def propagate_annotations_sam2(
         prompt_field=input_annotation_field,
         batch_size=int(2**np.ceil(np.log2(len(run_view)))),  # type: ignore[arg-type]
         progress=progress,
+        skip_failures=False,
     )
 
     return {}

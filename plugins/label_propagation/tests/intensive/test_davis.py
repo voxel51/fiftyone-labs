@@ -119,12 +119,12 @@ def test_temporal_segmentation(image_dataset_view):
 
 
 @pytest.mark.dependency(depends=["test_temporal_segmentation"])
-def test_temporal_exemplar_selection(image_dataset_view):
+def test_temporal_segment_exemplar_scoring(image_dataset_view):
     ctx = {
         "dataset": image_dataset_view._dataset,
         "view": image_dataset_view,
         "params": {
-            "exemplar_selection_method": "forward_only",
+            "exemplar_scoring_method": "first_frame",
             "temporal_segments_field": "temporal_segments_test",
             "sort_field": "new_frame_number",
         },

@@ -4,7 +4,7 @@ Propagate annotations from sparsely labeled "exemplar frames" to all frames in a
 
 This plugin exposes the following operators for use in the FiftyOne App and the Python SDK.
 
-- `propagate_labels`
+- `propagate_labels` — uses SAM2 to use labels from an input field as prompts, to populate and output field
 - `temporal_segmentation` — populates temporal segment classifications
 - `select_exemplars` — sets exemplar scores on segment classifications
 
@@ -28,12 +28,10 @@ This plugin exposes the following operators for use in the FiftyOne App and the 
 ### Parameters
 
 - **`input_annotation_field`** (string, required)
-
   - Sample-level field (for an image dataset) or Frame-level field (for a video dataset) containing the labels to propagate
   - Only frames where this field is **non-empty** are treated as exemplars
 
 - **`output_annotation_field`** (string, required)
-
   - Sample-level field (for an image dataset) or Frame-level field (for a video dataset) where the propagated labels will be stored
   - **Must be different** from `input_annotation_field` to prevent accidental overwriting of ground truth annotations
 
@@ -68,39 +66,58 @@ On success, you should see a message similar to:<br>
 
 ## Operator: `temporal_segmentation`
 
-Populates a `fo.Classifications` field with temporal segment labels. Each classification has `label` (segment id) and `exemplar_score` (float, initially 0).
+Populates an `fo.Classifications` field with temporal segment labels. Each classification has a `label` (segment id) and an `exemplar_score` (float, initially 0).
 
 ### Parameters
 
-- **`temporal_segments_field`** (string, default: `"temporal_segments"`) — field to store classifications
-- **`selection_method`** (string, default: `"heuristic"`) — detects scene discontinuities using image correlation
-- **`sort_field`** (string, optional) — field to sort samples before segmentation
+- **`temporal_segmentation_method`** (string, default: `"heuristic"`)
+  - Presently, only supports a single method, based on sharp changes in RGB stats
 
-## Operator: `select_exemplars`
+- **`temporal_segments_field`**
+  — Field in which to store classifications
 
-Sets `exemplar_score` on temporal segment classifications. For `forward_only`, the first frame of each segment gets score 1, others get 0.
-
-### Parameters
-
-- **`temporal_segments_field`** — same as above
-- **`exemplar_selection_method`** (string, default: `"forward_only"`)
 - **`sort_field`** (string, optional)
+  - **[For image datasets only]** Field used to sort samples before propagation, intended as a temporal index
+  - If the view has this field, frames are ordered by it; otherwise, the operator falls back to the default dataset order
 
 ### Field schema
 
 `{temporal_segments_field}` is `fo.Classifications`. Each `Classification` has:
 - `label` (str) — segment identifier
-- `exemplar_score` (float) — effectiveness as exemplar
+- `exemplar_score` (float) — effectiveness as an exemplar of the segment
+
+---
+
+## Operator: `select_exemplars`
+
+Only valid with an existing `fo.Classifications` field with temporal segment labels. Assigns an `exemplar_score` to each label of sample, indicating how valuable it is for this sample to be an exemplar for said temporal segment.
+
+### Parameters
+
+- **`temporal_segments_field`** (string, default: None)
+  - Field whose classification labels to modify
+
+- **`exemplar_scoring_method`** (string, default: `"first_frame"`) — detects scene discontinuities using image correlation
+  - Depends on the Label Propagation method used.
+  - Presently, only supports a single method, where the first frame of each segment gets score 1, others get 0. This is due to the lack of backward/bidirectional label propagation support.
+
+- **`sort_field`** (string, optional)
+  - **[For image datasets only]** Field used to sort samples before propagation, intended as a temporal index
+  - If the view has this field, frames are ordered by it; otherwise, the operator falls back to the default dataset order
 
 ---
 
 ## Interactive Panel: A Typical Workflow
 
+The **Label Propagation** panel provides an interactive UI for the complete workflow:
+
 1. Open the panel from the FiftyOne App sidebar
-2. Configure sort field and temporal segments field
-3. Run **Temporal Segmentation**, then **Exemplar Selection**
-4. Select a segment label to open its propagation view (samples containing that label)
-5. Label frames and run `propagate_labels`
+2. **[For image datasets]** Configure the sort field for indicating the temporal sequence of images.
+2. Configure the temporal segments field -- this may already exist, or will be where termporal detections are stored.
+3. If the entire dataset does not belong to a single video scene (i.e., has discontinuities), run **Temporal Segmentation**. You can now select a segment label to open its propagation view (samples belonging to that temporal detection label)
+4. Optionally, run **Exemplar Selection**. This will populate the `exemplar_score` field within the temporal segments classifications, to suggest how valuable of an exemplar each sample would be.
+5. Label frames as needed.
+6. Configure input and output annotation fields, then run `propagate_labels`
 6. Inspect results and iterate
 
 ---
@@ -111,11 +128,11 @@ For the next PR
 
 - [ ] Support backward propagation
 - [ ] Add evaluation to the pytests
-- [ ] Additional Exemplar selection methods
+- [ ] Additional Temporal Segmentation methods
 
 Product requirements
 
-- [ ] Supports image datasets
+- [x] Supports image datasets
 - [ ] Supports video datasets
 - [ ] Supports dynamically grouped datasets
 - [ ] Propagated labels include instance IDs
@@ -125,3 +142,4 @@ Other features on the roadmap
 
 - [ ] Single-sample (or few-sample) execution for interactive instance-wise propagation
 - [ ] UX features that support HA (e.g. edit label field, "select" instances)
+- [ ] [Golden workflow](https://docs.google.com/document/d/1qbj5oqmaeEMF-LUE6jTO6hQtXAK2JqA2Sx3UC5F0RiI/edit?tab=t.xe2xwhs8joev)
