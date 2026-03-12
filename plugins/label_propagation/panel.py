@@ -1,10 +1,13 @@
 import logging
+import os
 from typing import Any
 import numpy as np
 
 import fiftyone as fo
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
+import fiftyone.core.stages as fos
+import fiftyone.core.media as fom
 
 from .exemplars import (
     SUPPORTED_EXEMPLAR_SCORING_METHODS,
@@ -14,6 +17,16 @@ from .propagation import SUPPORTED_PROPAGATION_METHODS
 
 
 logger = logging.getLogger(__name__)
+
+# TODO(neeraja): remove this once stabilized
+# _log_dir = os.path.join(os.path.dirname(__file__), "logs")
+# os.makedirs(_log_dir, exist_ok=True)
+# _handler = logging.FileHandler(os.path.join(_log_dir, "debug1.log"))
+# _handler.setLevel(logging.DEBUG)
+# _handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+# if not logger.handlers:
+#     logger.addHandler(_handler)
+# logger.setLevel(logging.DEBUG)
 
 
 class LabelPropagationPanel(foo.Panel):
@@ -42,12 +55,29 @@ class LabelPropagationPanel(foo.Panel):
         - Persist the base view to ctx.panel.base_view
           in a serializable format
         """
-        logger.info(f"Registering base view with {len(ctx.view)} samples")
-        ctx.panel.state.base_view = list(ctx.view.values("id"))
+        if ctx.view.media_type == fom.GROUP:
+            base_view_ids = ctx.view.flatten().values("id")
+            group_clause = next(
+                (s for s in reversed(ctx.view._stages) if isinstance(s, fos.GroupBy)),
+                None,
+            )
+            group_by_field = group_clause.field_or_expr if group_clause else None
+            ctx.panel.state.group_by_field = group_by_field
+        else:
+            base_view_ids = ctx.view.values("id")
+        
+        logger.info(f"Registering base view with {len(base_view_ids)} samples")
+        ctx.panel.state.base_view = base_view_ids
 
     def get_base_view(self, ctx: Any) -> fo.DatasetView:
         if hasattr(ctx.panel.state, "base_view") and ctx.panel.state.base_view:
-            return ctx.dataset.select(ctx.panel.state.base_view)
+            base_view = ctx.dataset.select(ctx.panel.state.base_view)
+            if (ctx.view.media_type == fom.GROUP) and (
+                hasattr(ctx.panel.state, "group_by_field") and ctx.panel.state.group_by_field
+            ):
+                base_view = base_view.group_by(ctx.panel.state.group_by_field)
+            return base_view
+        
         logger.info(
             f"No base view found in panel state, using current view with {len(ctx.view)} samples"
         )

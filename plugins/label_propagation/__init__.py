@@ -109,15 +109,27 @@ class TemporalSegmentation(foo.Operator):
                 dataset.delete_sample_field(temporal_segments_field, error_level=2)
 
         if temporal_segments_field not in dataset.get_field_schema():
-            dataset.add_sample_field(
-                temporal_segments_field,
-                fo.EmbeddedDocumentField,
-                embedded_doc_type=fo.Classifications,
-            )
-            dataset.add_sample_field(
-                f"{temporal_segments_field}.classifications.exemplar_score",
-                fo.FloatField,
-            )
+            if dataset.media_type == "video":
+                # TODO(neeraja): haven't verified for video yet!!!
+                dataset.add_sample_field(
+                    temporal_segments_field,
+                    fo.EmbeddedDocumentField,
+                    embedded_doc_type=fo.TemporalDetections,
+                )
+                dataset.add_sample_field(
+                    f"{temporal_segments_field}.detections.exemplar_score",
+                    fo.FloatField,
+                )
+            else:
+                dataset.add_sample_field(
+                    temporal_segments_field,
+                    fo.EmbeddedDocumentField,
+                    embedded_doc_type=fo.Classifications,
+                )
+                dataset.add_sample_field(
+                    f"{temporal_segments_field}.classifications.exemplar_score",
+                    fo.FloatField,
+                )
 
         extract_temporal_segments(
             view=ctx.target_view(),
