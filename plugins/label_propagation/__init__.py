@@ -8,6 +8,8 @@ Extract exemplar frames from a video dataset and propagate annotations.
 
 import logging
 
+from scipy.sparse.linalg import dsolve
+
 import fiftyone as fo
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
@@ -27,6 +29,17 @@ from .panel import LabelPropagationPanel
 
 logger = logging.getLogger(__name__)
 
+
+def get_frame_schema(ds: fo.Dataset) -> dict:
+    if ds.media_type == "video":
+        frame_level_schema = ds.get_frame_field_schema()
+        frame_level_schema = {
+            "frames." + k: v
+            for k, v in frame_level_schema.items()  # type: ignore
+        }
+        return frame_level_schema
+    else:
+        return ds.get_field_schema()
 
 class TemporalSegmentation(foo.Operator):
     version = "1.0.0"
@@ -66,7 +79,7 @@ class TemporalSegmentation(foo.Operator):
             required=True,
         )
 
-        schema = ctx.dataset.get_field_schema()
+        schema = get_frame_schema(ctx.dataset)
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
         inputs.str(
             "sort_field",
@@ -86,7 +99,7 @@ class TemporalSegmentation(foo.Operator):
         sort_field = ctx.params.get("sort_field", None)
 
         dataset = ctx.dataset
-        schema = dataset.get_field_schema()
+        schema = get_frame_schema(dataset)
         if temporal_segments_field in schema:
             ft = type(schema[temporal_segments_field]).__name__
             if ft != "EmbeddedDocumentField":
@@ -135,8 +148,7 @@ class SelectExemplars(foo.Operator):
     
     def validate_input(self, ctx) -> bool:
         temporal_segments_field = ctx.params.get("temporal_segments_field")
-        dataset = ctx.dataset
-        schema = dataset.get_field_schema()
+        schema = get_frame_schema(ctx.dataset)
         if temporal_segments_field in schema:
             ft = type(schema[temporal_segments_field]).__name__
             if ft != "EmbeddedDocumentField":
@@ -175,7 +187,7 @@ class SelectExemplars(foo.Operator):
             required=True,
         )
 
-        schema = ctx.dataset.get_field_schema()
+        schema = get_frame_schema(ctx.dataset)
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
         inputs.str(
             "sort_field",
@@ -246,7 +258,7 @@ class PropagateLabels(foo.Operator):
             )
             return False
 
-        schema = ctx.dataset.get_field_schema()
+        schema = get_frame_schema(ctx.dataset)
         if input_annotation_field not in schema:
             logger.warning(
                 f"Input annotation field '{input_annotation_field}' not found in the dataset. "
@@ -261,7 +273,7 @@ class PropagateLabels(foo.Operator):
         inputs.view_target(ctx)
 
         # Get available fields from dataset schema for autocomplete
-        schema = ctx.dataset.get_field_schema()
+        schema = get_frame_schema(ctx.dataset)
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
 
         inputs.str(
@@ -315,12 +327,8 @@ class PropagateLabels(foo.Operator):
         view = ctx.target_view()
         total_samples = len(view)
         input_annotation_field = ctx.params.get("input_annotation_field")
-        output_annotation_field = ctx.params.get(
-            "output_annotation_field", None
-        )
-        if (output_annotation_field is None) or len(
-            output_annotation_field
-        ) == 0:
+        output_annotation_field = ctx.params.get("output_annotation_field", None)
+        if (output_annotation_field is None) or len(output_annotation_field) == 0:
             output_annotation_field = f"{input_annotation_field}_propagated"
         propagation_method = ctx.params.get("propagation_method")
         sort_field = ctx.params.get("sort_field", None)
