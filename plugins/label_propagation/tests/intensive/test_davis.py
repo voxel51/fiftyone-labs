@@ -210,8 +210,12 @@ def test_propagate_labels_video(partially_labeled_video_dataset_view):
         else 0
     )
     areas = [
-        sum([detection_area(det) for det in prop])
-        for prop in partially_labeled_video_dataset_view.values(
+        sum(
+            detection_area(det)
+            for frame_detections in sample_detections
+            for det in frame_detections
+        )
+        for sample_detections in partially_labeled_video_dataset_view.values(
             "frames.labels_test_propagated.detections"
         )
     ]
