@@ -36,8 +36,9 @@ def propagate_annotations_sam2(
         sort_field: Field to sort samples by
         progress: Whether to show progress bars (True/False) or use default (None)
     """
-    media_mode = str(view._dataset.media_type)
+    media_mode = str(view.media_type)
     if media_mode == "group":
+        view = view.flatten()
         media_mode = "image"
     
     model = foz.load_zoo_model(
