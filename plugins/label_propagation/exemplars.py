@@ -1,11 +1,11 @@
 import logging
-from typing import Union, Optional
-from collections import defaultdict
+from typing import Iterable, Union, Optional, Iterator, List, Tuple, Any
 
 import numpy as np
 import cv2
 
 import fiftyone as fo
+import fiftyone.core.media as fom
 import fiftyone.core.odm.document as fcod
 
 logger = logging.getLogger(__name__)
@@ -23,27 +23,24 @@ SUPPORTED_EXEMPLAR_SCORING_METHODS = [
 ]
 
 
-def frame_discontinuity(sample_a, sample_b) -> bool:
+def _frame_discontinuity(img_a: np.ndarray, img_b: np.ndarray) -> bool:
     """
-    Check if the two samples are "continuous enough".
+    Check if the two image arrays are "continuous enough".
+
     Args:
-        sample_a: The first sample
-        sample_b: The second sample
+        img_a: First image as BGR numpy array (e.g., from cv2.imread)
+        img_b: Second image as BGR numpy array
+
     Returns:
-        bool: True if a large discontinuity is detected between the two samples, False otherwise
+        True if a large discontinuity is detected between the two images,
+        False otherwise
     """
     TARGET_SIZE = (256, 256)
     GRAY_CORR_THRESHOLD = 0.9
     HSV_CORR_THRESHOLD = 0.9
     GRAY_DIFF_THRESHOLD = 30
 
-    img_a = cv2.imread(sample_a.filepath)
-    img_b = cv2.imread(sample_b.filepath)
-
     if img_a is None or img_b is None:
-        logger.warning(
-            f"Failed to read image: {sample_a.filepath if img_a is None else sample_b.filepath}"
-        )
         return True
 
     def get_image_features(img):
@@ -76,6 +73,62 @@ def frame_discontinuity(sample_a, sample_b) -> bool:
     return is_discontinuous
 
 
+def _compute_temporal_segments_from_frames(
+    frames: Iterable[np.ndarray],
+    method: str,
+) -> List[Tuple[str, float]]:
+    """
+    Core function: compute temporal segment labels from a sequence of frames.
+    Args:
+        frames: Iterator of BGR image arrays (e.g., from cv2.imread or video)
+        method: Segmentation method (currently "heuristic" only)
+    Returns:
+        List of (segment_label, exemplar_score) tuples, of length len(frames)
+    """
+    result: List[Tuple[str, float]] = []
+    segment_count = 0
+
+    if method == "heuristic":
+        curr_segment_label = ""
+        prev_frame = None
+        for frame in frames:
+            if prev_frame is None or _frame_discontinuity(prev_frame, frame):
+                segment_count += 1
+                curr_segment_label = str(fcod.ObjectId())
+
+            result.append((curr_segment_label, 0.0))
+            prev_frame = frame
+    else:
+        raise NotImplementedError(f"Unsupported method: {method}")
+    
+    logger.info(f"Computed {segment_count} temporal segments within {len(result)} frames")
+    return result
+
+
+def _frame_gen_from_image_dataset(
+    samples: fo.core.collections.SampleCollection  # type: ignore[reportUnknownReturnType]
+) -> Iterator[np.ndarray]:
+    for sample in samples.iter_samples():
+        frame = cv2.imread(sample.filepath)
+        yield frame
+
+
+def _iter_video_frames(filepath: str) -> Iterator[np.ndarray]:
+    """Yield BGR frames from a video file."""
+    cap = cv2.VideoCapture(filepath)
+    if not cap.isOpened():
+        logger.warning(f"Failed to open video: {filepath}")
+        return
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            yield frame
+    finally:
+        cap.release()
+
+
 def extract_temporal_segments(
     view: Union[fo.Dataset, fo.DatasetView],
     method: str,
@@ -85,34 +138,75 @@ def extract_temporal_segments(
     if sort_field and view.has_field(sort_field):
         view = view.sort_by(sort_field)
 
-    segment_labels = defaultdict(fo.Classifications)
+    media_type = view.media_type
+    is_dynamic_groups = getattr(view, "_is_dynamic_groups", False)
 
-    if method == "heuristic":
-        segment_count = 0
-        curr_segment_label = None
-        prev_sample = None
-        for sample in view:
-            if (
-                prev_sample is None
-                or frame_discontinuity(prev_sample, sample)
-            ):
-                segment_count += 1
-                curr_segment_label = fcod.ObjectId()
+    segment_labels: dict = {}
 
-            segment_labels[sample.id] = fo.Classifications(
+    if media_type == fom.IMAGE:
+        labels = _compute_temporal_segments_from_frames(_frame_gen_from_image_dataset(view), method)
+        id_list = view.values("id")
+        for sample_id, (seg_label, exemplar_score) in zip(
+            id_list, labels  # type: ignore[reportUnknownArgumentType]
+        ):
+            segment_labels[sample_id] = fo.Classifications(
                 classifications=[
-                    fo.Classification(label=str(curr_segment_label), exemplar_score=0.0)
+                    fo.Classification(
+                        label=seg_label, exemplar_score=exemplar_score
+                    )
                 ]
             )
-            prev_sample = sample
-    else:
-        raise NotImplementedError(f"Unsupported method: {method}")
+        
+    elif media_type == fom.GROUP:
+        if not is_dynamic_groups:
+            raise NotImplementedError("Only dynamic groups are supported for grouped datasets")
+        for group_view in view.iter_dynamic_groups():
+            extract_temporal_segments(group_view, method, temporal_segments_field, sort_field)
 
+    elif media_type == fom.VIDEO:
+
+        # TODO(neeraja): haven't verified for video yet!!!
+
+        # Video: each sample is separate, store TemporalDetections with support
+        for sample in view:
+            images = list(_iter_video_frames(sample.filepath))
+            if not images:
+                continue
+            labels = _compute_temporal_segments_from_frames(
+                images, method
+            )
+            # Aggregate consecutive frames with same label into TemporalDetections
+            detections: List[fo.TemporalDetection] = []
+            seg_start = None
+            seg_label = None
+            exemplar_score = 0.0
+            for frame_num, (curr_label, _) in enumerate(labels, start=1):
+                if seg_label is None or curr_label != seg_label:
+                    if seg_label is not None and seg_start is not None:
+                        detections.append(
+                            fo.TemporalDetection(
+                                label=seg_label,
+                                support=[seg_start, frame_num - 1],
+                                exemplar_score=exemplar_score,
+                            )
+                        )
+                    seg_start = frame_num
+                    seg_label = curr_label
+                    exemplar_score = 0.0
+            if seg_label is not None and seg_start is not None:
+                detections.append(
+                    fo.TemporalDetection(
+                        label=seg_label,
+                        support=[seg_start, len(images)],
+                        exemplar_score=exemplar_score,
+                    )
+                )
+            segment_labels[sample.id] = fo.TemporalDetections(
+                detections=detections
+            )
+    
     view.set_values(temporal_segments_field, segment_labels, key_field="id")
     view.save()
-    logger.info(
-        f"Extracted {segment_count} temporal segments into '{temporal_segments_field}'"
-    )
 
 
 def select_exemplars(

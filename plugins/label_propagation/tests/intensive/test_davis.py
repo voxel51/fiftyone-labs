@@ -97,11 +97,28 @@ def partially_labeled_video_dataset_view(video_dataset_view):
     return video_dataset_view
 
 
-@pytest.mark.dependency()
-def test_temporal_segmentation(image_dataset_view):
+# @pytest.mark.dependency()
+# @pytest.mark.parametrize(
+#     "view_fixture",
+#     ["partially_labeled_image_dataset_view", "partially_labeled_grouped_dataset_view"],
+# )
+@pytest.mark.parametrize(
+    "view_fixture", [
+        pytest.param(
+            "partially_labeled_image_dataset_view",
+            marks=pytest.mark.dependency(),
+        ),
+        pytest.param(
+            "partially_labeled_grouped_dataset_view",
+            marks=pytest.mark.dependency(),
+        ),
+    ],
+)
+def test_temporal_segmentation(request, view_fixture):
+    view = request.getfixturevalue(view_fixture)
     ctx = {
-        "dataset": image_dataset_view._dataset,
-        "view": image_dataset_view,
+        "dataset": view._dataset,
+        "view": view,
         "params": {
             "temporal_segmentation_method": "heuristic",
             "temporal_segments_field": "temporal_segments_test",
@@ -113,22 +130,38 @@ def test_temporal_segmentation(image_dataset_view):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    classifications = image_dataset_view.values("temporal_segments_test")
+    classifications = view.values("temporal_segments_test")
     assert all(cc is not None and cc.classifications for cc in classifications)
 
-    labels = image_dataset_view.values("temporal_segments_test.classifications.label")
+    labels = view.values("temporal_segments_test.classifications.label")
     assert all(len(ll) == 1 for ll in labels)
     assert len(set(np.array(labels).flatten())) == 1
 
-    exemplar_scores = image_dataset_view.values("temporal_segments_test.classifications.exemplar_score")
+    exemplar_scores = view.values("temporal_segments_test.classifications.exemplar_score")
     assert set(np.array(exemplar_scores).flatten()) == {0}
 
 
-@pytest.mark.dependency(depends=["test_temporal_segmentation"])
-def test_temporal_segment_exemplar_scoring(image_dataset_view):
+@pytest.mark.parametrize(
+    "view_fixture", [
+        pytest.param(
+            "partially_labeled_image_dataset_view",
+            marks=pytest.mark.dependency(
+                depends=["test_temporal_segmentation[partially_labeled_image_dataset_view]"]
+            ),
+        ),
+        pytest.param(
+            "partially_labeled_grouped_dataset_view",
+            marks=pytest.mark.dependency(
+                depends=["test_temporal_segmentation[partially_labeled_grouped_dataset_view]"]
+            ),
+        ),
+    ],
+)
+def test_temporal_segment_exemplar_scoring(request, view_fixture):
+    view = request.getfixturevalue(view_fixture)
     ctx = {
-        "dataset": image_dataset_view._dataset,
-        "view": image_dataset_view,
+        "dataset": view._dataset,
+        "view": view,
         "params": {
             "exemplar_scoring_method": "first_frame",
             "temporal_segments_field": "temporal_segments_test",
@@ -140,7 +173,7 @@ def test_temporal_segment_exemplar_scoring(image_dataset_view):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    temporal_classifications = image_dataset_view.values("temporal_segments_test")
+    temporal_classifications = view.values("temporal_segments_test")
     exemplar_scores = [
         getattr(c.classifications[0], "exemplar_score", 0)
         for c in temporal_classifications
