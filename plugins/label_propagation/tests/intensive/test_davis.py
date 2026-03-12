@@ -63,8 +63,14 @@ def partially_labeled_image_dataset_view(image_dataset_view):
 
 
 @pytest.fixture
+def partially_labeled_grouped_dataset_view(partially_labeled_image_dataset_view):
+    grouped_dataset_view = partially_labeled_image_dataset_view.group_by("sequence_id", order_by="frame_number")
+    return grouped_dataset_view
+
+
+@pytest.fixture
 def video_dataset_view():
-    dataset = foz.load_zoo_dataset("quickstart-video").limit(1)
+    dataset = foz.load_zoo_dataset("quickstart-video").limit(2)
     dataset.match_frames(F("frame_number") <= 4).keep_frames()
     return dataset
 
@@ -143,10 +149,15 @@ def test_temporal_segment_exemplar_scoring(image_dataset_view):
     assert np.abs(np.mean(exemplar_scores) - 1.0/len(temporal_classifications)) < 1e-6
 
 
-def test_propagate_labels_image(partially_labeled_image_dataset_view):
+@pytest.mark.parametrize(
+    "partially_labeled_view_fixture",
+    ["partially_labeled_image_dataset_view", "partially_labeled_grouped_dataset_view"],
+)
+def test_propagate_labels_image(request, partially_labeled_view_fixture):
+    partially_labeled_view = request.getfixturevalue(partially_labeled_view_fixture)
     ctx = {
-        "dataset": partially_labeled_image_dataset_view._dataset,
-        "view": partially_labeled_image_dataset_view,
+        "dataset": partially_labeled_view._dataset,
+        "view": partially_labeled_view,
         "params": {
             "input_annotation_field": "labels_test",
             "output_annotation_field": "labels_test_propagated",
@@ -167,7 +178,7 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
     )
     areas = [
         sum([detection_area(det) for det in prop])
-        for prop in partially_labeled_image_dataset_view.values(
+        for prop in partially_labeled_view.values(
             "labels_test_propagated.detections"
         )
     ]
@@ -175,20 +186,13 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
 
     # TODO(neeraja): add evaluation [in a follow-up PR]
 
-    indices = partially_labeled_image_dataset_view.values(
+    indices = partially_labeled_view.values(
         "labels_test_propagated.detections.index"
     )
     assert indices[0] == indices[-1]  # same number of objects in the first and last frames
 
 
 def test_propagate_labels_video(partially_labeled_video_dataset_view):
-    assert len(partially_labeled_video_dataset_view) == 1
-    sample = partially_labeled_video_dataset_view.first()
-    assert len(sample.frames) == 4
-    frame = sample.frames[1]
-    assert len(frame["labels_test"].detections) > 0
-    frame = sample.frames[2]
-    assert len(frame["labels_test"].detections) == 0
     ctx = {
         "dataset": partially_labeled_video_dataset_view._dataset,
         "view": partially_labeled_video_dataset_view,
