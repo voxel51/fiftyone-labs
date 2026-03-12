@@ -12,7 +12,7 @@ print("Make sure your fiftyone installation is on the latest `develop`")
 print("--------------------------------\n")
 
 
-def get_dataset_view(num_scenes):
+def get_dataset_view(num_scenes, media_format):
     dataset = foz.load_zoo_dataset(
         "https://github.com/voxel51/davis-2017",
         split="validation",
@@ -21,21 +21,24 @@ def get_dataset_view(num_scenes):
     SELECT_SEQUENCES = ["car-roundabout", "car-shadow", "mbike-trick"]
     dataset_view = dataset.match_tags(SELECT_SEQUENCES[:num_scenes])
     dataset_view = dataset_view.match(F("frame_number").to_int() < 9)
+
+    if media_format == "group":
+        dataset_view = dataset_view.group_by("sequence_id", order_by="frame_number")
+    
     return dataset_view
 
 
-def get_partially_labeled_dataset_view(num_scenes):
-    dataset_view = get_dataset_view(num_scenes)
+def get_partially_labeled_dataset_view(num_scenes, media_format):
+    dataset_view = get_dataset_view(num_scenes, media_format)
 
     if "labels_test" in dataset_view._dataset.get_field_schema():
-        try:
-            dataset_view._dataset.delete_sample_field(
-                "labels_test", error_level=2
-            )
-        except AttributeError:
-            assert (
-                "labels_test" not in dataset_view._dataset.get_field_schema()
-            ), "Unable to delete labels_test field"
+        dataset_view._dataset.delete_sample_field(
+            "labels_test", error_level=2
+        )
+    if "labels_test_propagated" in dataset_view._dataset.get_field_schema():
+        dataset_view._dataset.delete_sample_field(
+            "labels_test_propagated", error_level=2
+        )
 
     if "labels_test" not in dataset_view._dataset.get_field_schema():
         dataset_view._dataset.add_sample_field(
@@ -48,15 +51,16 @@ def get_partially_labeled_dataset_view(num_scenes):
     sequences.remove("val")
     new_frame_number = 0
     for seq in sequences:
-        seq_slice = dataset_view.match_tags(seq).sort_by("frame_number")
-        seq_slice.set_values(
+        seq_view = dataset_view.match_tags(seq).sort_by("frame_number")
+        seq_length = len(seq_view.flatten()) if media_format == "group" else len(seq_view)
+        seq_view.set_values(
             "new_frame_number",
-            [new_frame_number + ii for ii in range(len(seq_slice))],
+            [new_frame_number + ii for ii in range(seq_length)],
         )
-        new_frame_number += len(seq_slice)
+        new_frame_number += seq_length
 
         # label only the first
-        exemplar_sample = seq_slice.first()
+        exemplar_sample = seq_view.first()
         exemplar_sample["labels_test"] = exemplar_sample["ground_truth"]
         exemplar_sample.save()
 
@@ -71,9 +75,16 @@ if __name__ == "__main__":
         default=1,
         help="Number of sequences to include",
     )
+    parser.add_argument(
+        "--media-format",
+        type=str,
+        default="image",
+        help="Media format to use",
+        choices=["image", "group", "video"],
+    )
     args = parser.parse_args()
 
-    view = get_partially_labeled_dataset_view(args.num_scenes)
+    view = get_partially_labeled_dataset_view(args.num_scenes, args.media_format)
     session = fo.launch_app(view)
 
     print("\n--------------------------------")
