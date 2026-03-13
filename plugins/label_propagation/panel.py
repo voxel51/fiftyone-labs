@@ -9,6 +9,7 @@ import fiftyone.operators.types as types
 import fiftyone.core.stages as fos
 import fiftyone.core.media as fom
 
+from .utils import get_frame_schema
 from .exemplars import (
     SUPPORTED_EXEMPLAR_SCORING_METHODS,
     SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 # TODO(neeraja): remove this once stabilized
 # _log_dir = os.path.join(os.path.dirname(__file__), "logs")
 # os.makedirs(_log_dir, exist_ok=True)
-# _handler = logging.FileHandler(os.path.join(_log_dir, "debug1.log"))
+# _handler = logging.FileHandler(os.path.join(_log_dir, "debug.log"))
 # _handler.setLevel(logging.DEBUG)
 # _handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 # if not logger.handlers:
@@ -55,6 +56,9 @@ class LabelPropagationPanel(foo.Panel):
         - Persist the base view to ctx.panel.base_view
           in a serializable format
         """
+
+        # TODO(neeraja): add support for video datasets
+
         if ctx.view.media_type == fom.GROUP:
             base_view_ids = ctx.view.flatten().values("id")
             group_clause = next(
@@ -155,17 +159,33 @@ class LabelPropagationPanel(foo.Panel):
         segments_field = getattr(ctx.panel.state, "temporal_segments_field", None)
         if not segments_field:
             return
-
-        segment_ids = set(np.array(
-            view.values(f"{segments_field}.classifications.label")
-        ).flatten())
-
+        
         segment_to_ids = {}
-        for seg_id in segment_ids:
-            seg_view = view.match(
-                {f"{segments_field}.classifications": {"$elemMatch": {"label": seg_id}}}
-            )
-            segment_to_ids[seg_id] = list(seg_view.values("id"))
+
+        if view.media_type == fom.VIDEO:
+            segment_ids = set(np.array(
+                view.values(f"{segments_field}.detections.label")
+            ).flatten())
+
+            # for videos, segments are interpreted as clips
+            clips_view = view.to_clips(segments_field)
+
+            for seg_id in segment_ids:
+                seg_view = clips_view.match(
+                    {f"{segments_field}.label": seg_id}
+                )
+                segment_to_ids[seg_id] = list(seg_view.values("id"))
+        
+        else:
+            segment_ids = set(np.array(
+                view.values(f"{segments_field}.classifications.label")
+            ).flatten())
+
+            for seg_id in segment_ids:
+                seg_view = view.match(
+                    {f"{segments_field}.classifications": {"$elemMatch": {"label": seg_id}}}
+                )
+                segment_to_ids[seg_id] = list(seg_view.values("id"))
  
         ctx.panel.state.segments = segment_to_ids
         if segment_to_ids:
@@ -267,7 +287,15 @@ class LabelPropagationPanel(foo.Panel):
             )
             return
         
-        propagation_view = base_view.select(segments[segment_label])
+        if base_view.media_type == fom.VIDEO:
+            segments_field = getattr(ctx.panel.state, "temporal_segments_field", None)
+            base_to_clips_view = base_view.to_clips(segments_field)
+            propagation_view = base_to_clips_view.select(
+                segments[segment_label]
+            )
+        else:
+            propagation_view = base_view.select(segments[segment_label])
+        
         if len(propagation_view) == 0:
             ctx.ops.notify(
                 f"Empty propagation view for segment {segment_label}",
@@ -329,7 +357,7 @@ class LabelPropagationPanel(foo.Panel):
 
         # Configuration inputs (always at top)
         panel.md("#### Configuration", name="panel_config_header")
-        schema = ctx.dataset.get_field_schema()
+        schema = get_frame_schema(ctx.dataset)
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
         panel.str(
             "sort_field",
