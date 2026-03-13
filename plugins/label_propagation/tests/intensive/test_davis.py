@@ -97,11 +97,6 @@ def partially_labeled_video_dataset_view(video_dataset_view):
     return video_dataset_view
 
 
-# @pytest.mark.dependency()
-# @pytest.mark.parametrize(
-#     "view_fixture",
-#     ["partially_labeled_image_dataset_view", "partially_labeled_grouped_dataset_view"],
-# )
 @pytest.mark.parametrize(
     "view_fixture", [
         pytest.param(
@@ -180,6 +175,29 @@ def test_temporal_segment_exemplar_scoring(request, view_fixture):
         if c and c.classifications
     ]
     assert np.abs(np.mean(exemplar_scores) - 1.0/len(temporal_classifications)) < 1e-6
+
+
+def test_temporal_segmentation_video(partially_labeled_video_dataset_view):
+    view = partially_labeled_video_dataset_view
+    ctx = {
+        "dataset": view._dataset,
+        "view": view,
+        "params": {
+            "temporal_segmentation_method": "heuristic",
+            "temporal_segments_field": "temporal_segments_test",
+            "sort_field": "frames.frame_number",
+        },
+    }
+    result = foo.execute_operator(
+        "@51labs/label_propagation/temporal_segmentation", ctx
+    )
+    print(result.result["message"])  # type: ignore[index]
+
+    temporal_classifications = view.values("temporal_segments_test")
+    assert all(
+        len(temporal_classifications[ii].detections) == 1
+        for ii in range(len(view))
+    )
 
 
 @pytest.mark.parametrize(
