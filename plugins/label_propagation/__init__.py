@@ -8,12 +8,11 @@ Extract exemplar frames from a video dataset and propagate annotations.
 
 import logging
 
-from scipy.sparse.linalg import dsolve
-
 import fiftyone as fo
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
 
+from .utils import get_frame_schema
 from .exemplars import (
     SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
     SUPPORTED_EXEMPLAR_SCORING_METHODS,
@@ -29,17 +28,6 @@ from .panel import LabelPropagationPanel
 
 logger = logging.getLogger(__name__)
 
-
-def get_frame_schema(ds: fo.Dataset) -> dict:
-    if ds.media_type == "video":
-        frame_level_schema = ds.get_frame_field_schema()
-        frame_level_schema = {
-            "frames." + k: v
-            for k, v in frame_level_schema.items()  # type: ignore
-        }
-        return frame_level_schema
-    else:
-        return ds.get_field_schema()
 
 class TemporalSegmentation(foo.Operator):
     version = "1.0.0"

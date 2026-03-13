@@ -113,17 +113,22 @@ def _frame_gen_from_image_dataset(
         yield frame
 
 
-def _iter_video_frames(filepath: str) -> Iterator[np.ndarray]:
-    """Yield BGR frames from a video file."""
-    cap = cv2.VideoCapture(filepath)
+def _frame_gen_from_video(
+    sample: fo.Sample, max_frames: Optional[int] = None,
+) -> Iterator[np.ndarray]:
+    cap = cv2.VideoCapture(sample.filepath)
     if not cap.isOpened():
-        logger.warning(f"Failed to open video: {filepath}")
+        logger.warning(f"Failed to open video: {sample.filepath}")
         return
     try:
+        frame_count = 0
         while True:
+            if max_frames is not None and frame_count >= max_frames:
+                break
             ret, frame = cap.read()
             if not ret:
                 break
+            frame_count += 1
             yield frame
     finally:
         cap.release()
@@ -144,7 +149,9 @@ def extract_temporal_segments(
     segment_labels: dict = {}
 
     if media_type == fom.IMAGE:
-        labels = _compute_temporal_segments_from_frames(_frame_gen_from_image_dataset(view), method)
+        labels = _compute_temporal_segments_from_frames(
+            _frame_gen_from_image_dataset(view), method
+        )
         id_list = view.values("id")
         for sample_id, (seg_label, exemplar_score) in zip(
             id_list, labels  # type: ignore[reportUnknownArgumentType]
@@ -164,45 +171,39 @@ def extract_temporal_segments(
             extract_temporal_segments(group_view, method, temporal_segments_field, sort_field)
 
     elif media_type == fom.VIDEO:
-
-        # TODO(neeraja): haven't verified for video yet!!!
-
-        # Video: each sample is separate, store TemporalDetections with support
         for sample in view:
-            images = list(_iter_video_frames(sample.filepath))
-            if not images:
-                continue
             labels = _compute_temporal_segments_from_frames(
-                images, method
+                _frame_gen_from_video(sample, len(sample.frames)), method
             )
-            # Aggregate consecutive frames with same label into TemporalDetections
-            detections: List[fo.TemporalDetection] = []
-            seg_start = None
-            seg_label = None
-            exemplar_score = 0.0
-            for frame_num, (curr_label, _) in enumerate(labels, start=1):
-                if seg_label is None or curr_label != seg_label:
-                    if seg_label is not None and seg_start is not None:
-                        detections.append(
+            
+            temporal_detections: List[fo.TemporalDetection] = []
+            seg_start = 1
+            seg_end = 1
+            prev_label = ""
+            for frame_idx, (curr_label, _) in enumerate(labels):
+                seg_end = frame_idx + 1
+                if curr_label != prev_label:
+                    if prev_label:
+                        temporal_detections.append(
                             fo.TemporalDetection(
-                                label=seg_label,
-                                support=[seg_start, frame_num - 1],
-                                exemplar_score=exemplar_score,
+                                label=prev_label,
+                                support=[seg_start, seg_end-1],
                             )
                         )
-                    seg_start = frame_num
-                    seg_label = curr_label
-                    exemplar_score = 0.0
-            if seg_label is not None and seg_start is not None:
-                detections.append(
+                        seg_start = seg_end + 1
+                    prev_label = curr_label
+            # end of iteration
+            seg_end = frame_idx + 1
+            if prev_label:
+                temporal_detections.append(
                     fo.TemporalDetection(
-                        label=seg_label,
-                        support=[seg_start, len(images)],
-                        exemplar_score=exemplar_score,
+                        label=prev_label,
+                        support=[seg_start, seg_end],
                     )
                 )
+
             segment_labels[sample.id] = fo.TemporalDetections(
-                detections=detections
+                detections=temporal_detections
             )
     
     view.set_values(temporal_segments_field, segment_labels, key_field="id")
