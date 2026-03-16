@@ -100,13 +100,15 @@ def _compute_temporal_segments_from_frames(
             prev_frame = frame
     else:
         raise NotImplementedError(f"Unsupported method: {method}")
-    
-    logger.info(f"Computed {segment_count} temporal segments within {len(result)} frames")
+
+    logger.info(
+        f"Computed {segment_count} temporal segments within {len(result)} frames"
+    )
     return result
 
 
 def _frame_gen_from_image_dataset(
-    samples: fo.core.collections.SampleCollection  # type: ignore[reportUnknownReturnType]
+    samples: fo.core.collections.SampleCollection,  # type: ignore[reportUnknownReturnType]
 ) -> Iterator[np.ndarray]:
     for sample in samples.iter_samples():
         frame = cv2.imread(sample.filepath)
@@ -114,7 +116,8 @@ def _frame_gen_from_image_dataset(
 
 
 def _frame_gen_from_video(
-    sample: fo.Sample, max_frames: Optional[int] = None,
+    sample: fo.Sample,
+    max_frames: Optional[int] = None,
 ) -> Iterator[np.ndarray]:
     cap = cv2.VideoCapture(sample.filepath)
     if not cap.isOpened():
@@ -163,19 +166,23 @@ def extract_temporal_segments(
                     )
                 ]
             )
-        
+
     elif media_type == fom.GROUP:
         if not is_dynamic_groups:
-            raise NotImplementedError("Only dynamic groups are supported for grouped datasets")
+            raise NotImplementedError(
+                "Only dynamic groups are supported for grouped datasets"
+            )
         for group_view in view.iter_dynamic_groups():
-            extract_temporal_segments(group_view, method, temporal_segments_field, sort_field)
+            extract_temporal_segments(
+                group_view, method, temporal_segments_field, sort_field
+            )
 
     elif media_type == fom.VIDEO:
         for sample in view:
             labels = _compute_temporal_segments_from_frames(
                 _frame_gen_from_video(sample, len(sample.frames)), method
             )
-            
+
             temporal_detections: List[fo.TemporalDetection] = []
             seg_start = 1
             seg_end = 1
@@ -187,7 +194,7 @@ def extract_temporal_segments(
                         temporal_detections.append(
                             fo.TemporalDetection(
                                 label=prev_label,
-                                support=[seg_start, seg_end-1],
+                                support=[seg_start, seg_end - 1],
                             )
                         )
                         seg_start = seg_end + 1
@@ -205,7 +212,7 @@ def extract_temporal_segments(
             segment_labels[sample.id] = fo.TemporalDetections(
                 detections=temporal_detections
             )
-    
+
     view.set_values(temporal_segments_field, segment_labels, key_field="id")
     view.save()
 
@@ -222,26 +229,36 @@ def select_exemplars(
         Hence, the first sample in each segment gets a score of 1.0,
         and the rest get 0.0s.
         """
-        segment_ids = set(np.array(
-            view.values(f"{temporal_segments_field}.classifications.label")
-        ).flatten())
+        segment_ids = set(
+            np.array(
+                view.values(f"{temporal_segments_field}.classifications.label")
+            ).flatten()
+        )
         for seg_id in segment_ids:
             seg_view = view.match(
-                {f"{temporal_segments_field}.classifications": {"$elemMatch": {"label": seg_id}}}
+                {
+                    f"{temporal_segments_field}.classifications": {
+                        "$elemMatch": {"label": seg_id}
+                    }
+                }
             )
 
             if seg_view.has_field(sort_field):
                 seg_view = seg_view.sort_by(sort_field)
-            
+
             first_sample = seg_view.first()
-            first_sample_segments = first_sample.get_field(temporal_segments_field).classifications
+            first_sample_segments = first_sample.get_field(
+                temporal_segments_field
+            ).classifications
             for seg in first_sample_segments:
                 if seg.label == seg_id:
                     seg.exemplar_score = 1.0
-            first_sample[temporal_segments_field].classifications = first_sample_segments
+            first_sample[
+                temporal_segments_field
+            ].classifications = first_sample_segments
             first_sample.save()
     else:
         raise NotImplementedError(f"Unsupported method: {method}")
-    
+
     view.save()
     logger.info(f"Set exemplar scores in '{temporal_segments_field}'")

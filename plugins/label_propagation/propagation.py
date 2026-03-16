@@ -13,10 +13,11 @@ SUPPORTED_PROPAGATION_METHODS = [
     "sam2",
 ]
 
+
 def get_frame_field_name(field_name: str, media_mode: str) -> str:
     if media_mode == "video":
         if field_name.startswith("frames."):
-            return field_name[len("frames."):]
+            return field_name[len("frames.") :]
     return field_name
 
 
@@ -40,7 +41,7 @@ def propagate_annotations_sam2(
     if media_mode == "group":
         view = view.flatten()
         media_mode = "image"
-    
+
     model = foz.load_zoo_model(
         "segment-anything-2-hiera-tiny-video-torch",
         media_mode=media_mode,
@@ -56,7 +57,7 @@ def propagate_annotations_sam2(
         # label_field is applied directly to the frame field. hence we need the frame-level field name.
         label_field=get_frame_field_name(output_annotation_field, media_mode),
         prompt_field=input_annotation_field,
-        batch_size=int(2**np.ceil(np.log2(len(run_view)))),  # type: ignore[arg-type]
+        batch_size=int(2 ** np.ceil(np.log2(len(run_view)))),  # type: ignore[arg-type]
         progress=progress,
         skip_failures=False,
     )
