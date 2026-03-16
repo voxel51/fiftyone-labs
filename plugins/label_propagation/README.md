@@ -28,10 +28,12 @@ This plugin exposes the following operators for use in the FiftyOne App and the 
 ### Parameters
 
 - **`input_annotation_field`** (string, required)
+
   - Sample-level field (for an image dataset) or Frame-level field (for a video dataset) containing the labels to propagate
   - Only frames where this field is **non-empty** are treated as exemplars
 
 - **`output_annotation_field`** (string, required)
+
   - Sample-level field (for an image dataset) or Frame-level field (for a video dataset) where the propagated labels will be stored
   - **Must be different** from `input_annotation_field` to prevent accidental overwriting of ground truth annotations
 
@@ -71,6 +73,7 @@ Populates an `fo.Classifications` field with temporal segment labels. Each class
 ### Parameters
 
 - **`temporal_segmentation_method`** (string, default: `"heuristic"`)
+
   - Presently, only supports a single method, based on sharp changes in RGB stats
 
 - **`temporal_segments_field`**
@@ -83,6 +86,7 @@ Populates an `fo.Classifications` field with temporal segment labels. Each class
 ### Field schema
 
 `{temporal_segments_field}` is `fo.Classifications`. Each `Classification` has:
+
 - `label` (str) — segment identifier
 - `exemplar_score` (float) — effectiveness as an exemplar of the segment
 
@@ -95,9 +99,11 @@ Only valid with an existing `fo.Classifications` field with temporal segment lab
 ### Parameters
 
 - **`temporal_segments_field`** (string, default: None)
+
   - Field whose classification labels to modify
 
 - **`exemplar_scoring_method`** (string, default: `"first_frame"`) — detects scene discontinuities using image correlation
+
   - Depends on the Label Propagation method used.
   - Presently, only supports a single method, where the first frame of each segment gets score 1, others get 0. This is due to the lack of backward/bidirectional label propagation support.
 
@@ -113,12 +119,12 @@ The **Label Propagation** panel provides an interactive UI for the complete work
 
 1. Open the panel from the FiftyOne App sidebar
 2. **[For image datasets]** Configure the sort field for indicating the temporal sequence of images.
-2. Configure the temporal segments field -- this may already exist, or will be where termporal detections are stored.
-3. If the entire dataset does not belong to a single video scene (i.e., has discontinuities), run **Temporal Segmentation**. You can now select a segment label to open its propagation view (samples belonging to that temporal detection label)
-4. Optionally, run **Exemplar Selection**. This will populate the `exemplar_score` field within the temporal segments classifications, to suggest how valuable of an exemplar each sample would be.
-5. Label frames as needed.
-6. Configure input and output annotation fields, then run `propagate_labels`
-6. Inspect results and iterate
+3. Configure the temporal segments field -- this may already exist, or will be where temporal detections are stored.
+4. If the entire dataset does not belong to a single video scene (i.e., has discontinuities), run **Temporal Segmentation**. You can now select a segment label to open its propagation view (samples belonging to that temporal detection label)
+5. Optionally, run **Exemplar Selection**. This will populate the `exemplar_score` field within the temporal segments classifications, to suggest how valuable of an exemplar each sample would be.
+6. Label frames as needed.
+7. Configure input and output annotation fields, then run `propagate_labels`
+8. Inspect results and iterate
 
 ---
 

@@ -30,7 +30,10 @@ def partially_labeled_image_dataset_view(image_dataset_view):
         image_dataset_view._dataset.delete_sample_field(
             "labels_test", error_level=2
         )
-    if "labels_test_propagated" in image_dataset_view._dataset.get_field_schema():
+    if (
+        "labels_test_propagated"
+        in image_dataset_view._dataset.get_field_schema()
+    ):
         image_dataset_view._dataset.delete_sample_field(
             "labels_test_propagated", error_level=2
         )
@@ -63,8 +66,12 @@ def partially_labeled_image_dataset_view(image_dataset_view):
 
 
 @pytest.fixture
-def partially_labeled_grouped_dataset_view(partially_labeled_image_dataset_view):
-    grouped_dataset_view = partially_labeled_image_dataset_view.group_by("sequence_id", order_by="frame_number")
+def partially_labeled_grouped_dataset_view(
+    partially_labeled_image_dataset_view,
+):
+    grouped_dataset_view = partially_labeled_image_dataset_view.group_by(
+        "sequence_id", order_by="frame_number"
+    )
     return grouped_dataset_view
 
 
@@ -77,7 +84,10 @@ def video_dataset_view():
 
 @pytest.fixture
 def partially_labeled_video_dataset_view(video_dataset_view):
-    if "labels_test" not in video_dataset_view._dataset.get_frame_field_schema():
+    if (
+        "labels_test"
+        not in video_dataset_view._dataset.get_frame_field_schema()
+    ):
         video_dataset_view._dataset.add_frame_field(
             "labels_test",
             fo.EmbeddedDocumentField,
@@ -98,7 +108,8 @@ def partially_labeled_video_dataset_view(video_dataset_view):
 
 
 @pytest.mark.parametrize(
-    "view_fixture", [
+    "view_fixture",
+    [
         pytest.param(
             "partially_labeled_image_dataset_view",
             marks=pytest.mark.dependency(),
@@ -132,22 +143,29 @@ def test_temporal_segmentation(request, view_fixture):
     assert all(len(ll) == 1 for ll in labels)
     assert len(set(np.array(labels).flatten())) == 1
 
-    exemplar_scores = view.values("temporal_segments_test.classifications.exemplar_score")
+    exemplar_scores = view.values(
+        "temporal_segments_test.classifications.exemplar_score"
+    )
     assert set(np.array(exemplar_scores).flatten()) == {0}
 
 
 @pytest.mark.parametrize(
-    "view_fixture", [
+    "view_fixture",
+    [
         pytest.param(
             "partially_labeled_image_dataset_view",
             marks=pytest.mark.dependency(
-                depends=["test_temporal_segmentation[partially_labeled_image_dataset_view]"]
+                depends=[
+                    "test_temporal_segmentation[partially_labeled_image_dataset_view]"
+                ]
             ),
         ),
         pytest.param(
             "partially_labeled_grouped_dataset_view",
             marks=pytest.mark.dependency(
-                depends=["test_temporal_segmentation[partially_labeled_grouped_dataset_view]"]
+                depends=[
+                    "test_temporal_segmentation[partially_labeled_grouped_dataset_view]"
+                ]
             ),
         ),
     ],
@@ -174,7 +192,10 @@ def test_temporal_segment_exemplar_scoring(request, view_fixture):
         for c in temporal_classifications
         if c and c.classifications
     ]
-    assert np.abs(np.mean(exemplar_scores) - 1.0/len(temporal_classifications)) < 1e-6
+    assert (
+        np.abs(np.mean(exemplar_scores) - 1.0 / len(temporal_classifications))
+        < 1e-6
+    )
 
 
 def test_temporal_segmentation_video(partially_labeled_video_dataset_view):
@@ -202,10 +223,15 @@ def test_temporal_segmentation_video(partially_labeled_video_dataset_view):
 
 @pytest.mark.parametrize(
     "partially_labeled_view_fixture",
-    ["partially_labeled_image_dataset_view", "partially_labeled_grouped_dataset_view"],
+    [
+        "partially_labeled_image_dataset_view",
+        "partially_labeled_grouped_dataset_view",
+    ],
 )
 def test_propagate_labels_image(request, partially_labeled_view_fixture):
-    partially_labeled_view = request.getfixturevalue(partially_labeled_view_fixture)
+    partially_labeled_view = request.getfixturevalue(
+        partially_labeled_view_fixture
+    )
     ctx = {
         "dataset": partially_labeled_view._dataset,
         "view": partially_labeled_view,
@@ -240,7 +266,9 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
     indices = partially_labeled_view.values(
         "labels_test_propagated.detections.index"
     )
-    assert indices[0] == indices[-1]  # same number of objects in the first and last frames
+    assert (
+        indices[0] == indices[-1]
+    )  # same number of objects in the first and last frames
 
 
 def test_propagate_labels_video(partially_labeled_video_dataset_view):
