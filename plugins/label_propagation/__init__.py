@@ -82,7 +82,9 @@ class TemporalSegmentation(foo.Operator):
         return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
-        temporal_segmentation_method = ctx.params.get("temporal_segmentation_method")
+        temporal_segmentation_method = ctx.params.get(
+            "temporal_segmentation_method"
+        )
         temporal_segments_field = ctx.params.get("temporal_segments_field")
         sort_field = ctx.params.get("sort_field", None)
 
@@ -94,7 +96,9 @@ class TemporalSegmentation(foo.Operator):
                 logger.warning(
                     f"Found existing field '{temporal_segments_field}' with type '{ft}'. This will be overwritten."
                 )
-                dataset.delete_sample_field(temporal_segments_field, error_level=2)
+                dataset.delete_sample_field(
+                    temporal_segments_field, error_level=2
+                )
 
         if temporal_segments_field not in dataset.get_field_schema():
             if dataset.media_type == "video":
@@ -145,7 +149,7 @@ class SelectExemplars(foo.Operator):
             dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
         )
-    
+
     def validate_input(self, ctx) -> bool:
         temporal_segments_field = ctx.params.get("temporal_segments_field")
         schema = get_frame_schema(ctx.dataset)
@@ -327,8 +331,12 @@ class PropagateLabels(foo.Operator):
         view = ctx.target_view()
         total_samples = len(view)
         input_annotation_field = ctx.params.get("input_annotation_field")
-        output_annotation_field = ctx.params.get("output_annotation_field", None)
-        if (output_annotation_field is None) or len(output_annotation_field) == 0:
+        output_annotation_field = ctx.params.get(
+            "output_annotation_field", None
+        )
+        if (output_annotation_field is None) or len(
+            output_annotation_field
+        ) == 0:
             output_annotation_field = f"{input_annotation_field}_propagated"
         propagation_method = ctx.params.get("propagation_method")
         sort_field = ctx.params.get("sort_field", None)
