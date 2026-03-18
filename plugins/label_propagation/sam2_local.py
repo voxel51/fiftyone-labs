@@ -19,16 +19,12 @@ import fiftyone.core.labels as fol
 import fiftyone.core.media as focm
 import fiftyone.core.models as fom
 import fiftyone.core.utils as fou
-import fiftyone.core.storage as fos
 import fiftyone.utils.sam as fosam
 from fiftyone.utils.sam2 import (
     SegmentAnything2VideoModel as FiftyOneSegmentAnything2VideoModel,
-    SegmentAnything2VideoModelConfig as FiftyOneSegmentAnything2VideoModelConfig,
 )
 import fiftyone.utils.torch as fout
 import fiftyone.zoo.models as fozm
-
-from .utils import get_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +48,7 @@ def _to_abs_mask(mask, abs_box, img_width, img_height):
     Returns:
         numpy array relative to the image
     """
-    x1, y1, x2, y2 = [int(round(v)) for v in abs_box]
+    x1, y1, x2, y2 = abs_box
     box_width = x2 - x1
     box_height = y2 - y1
     mask_fitted = np.pad(
@@ -67,8 +63,55 @@ def _to_abs_mask(mask, abs_box, img_width, img_height):
     return mask_framed.astype(np.uint8)
 
 
+def _subtract_negative_box_regions(
+    mask: np.ndarray,
+    neg_detections: Optional[fol.Detections],
+    width: int,
+    height: int,
+) -> np.ndarray:
+    """Subtract negative bounding box regions from a segmentation mask.
+
+    Args:
+        mask: numpy array representing segmentation mask(s). Supports:
+            - 2D (H, W) for video model
+            - 3D (N, H, W) for image model
+            - 4D (N, 1, H, W) for image model
+        neg_detections: a :class:`fiftyone.core.labels.Detections` containing
+            negative prompt boxes, or None
+        width: image/frame width in pixels
+        height: image/frame height in pixels
+
+    Returns:
+        the modified mask with negative regions zeroed out
+    """
+    if neg_detections is None:
+        return mask
+
+    detections = cast(Iterable[fol.Detection], neg_detections.detections)
+    for neg_det in detections:
+        box_xyxy = fosam._to_abs_boxes(
+            np.array([neg_det.bounding_box]), width, height, chunk_size=1
+        )
+        box_abs = np.round(box_xyxy.squeeze()).astype(int)
+        nx1, ny1, nx2, ny2 = (
+            max(0, box_abs[0]),
+            max(0, box_abs[1]),
+            min(width, box_abs[2]),
+            min(height, box_abs[3]),
+        )
+        if nx2 > nx1 and ny2 > ny1:
+            if mask.ndim == 2:
+                mask[ny1:ny2, nx1:nx2] = 0
+            elif mask.ndim == 3:
+                mask[:, ny1:ny2, nx1:nx2] = 0
+            else:
+                mask[:, 0, ny1:ny2, nx1:nx2] = 0
+
+    return mask
+
+
 class SegmentAnything2VideoModelConfig(
-    FiftyOneSegmentAnything2VideoModelConfig
+    fout.TorchImageModelConfig, fozm.HasZooModel
 ):
     """Configuration for running a :class:`SegmentAnything2VideoModel`.
 
@@ -93,7 +136,8 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
     """Local wrapper for running Segment Anything 2 inference.
 
     This model supports:
-      - image-mode propagation where `prompt_field` is a *sample-level* field
+      - image-mode propagation where `prompt_field` is a *sample-level*
+        field
       - detection-mask prompts (when `Detection.mask` is present)
       - a monkey-patched `load_video_frames` implementation that can build
         SAM2's internal frame tensors from FiftyOne frame samples via a
@@ -117,62 +161,19 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             self.ctx = _load_video_frames_monkey_patches()
         except Exception as e:
             logger.error(
-                "Failed to monkey patch sam2.utils.misc.load_video_frames: %s",
-                e,
+                "Failed to monkey patch sam2.utils.misc.load_video_frames: %s", e
             )
             self.ctx = None
 
         self.model = self._load_model(config)
         self.media_mode = getattr(config, "media_mode", "video")
-        self._patch_sam2_memory_dtype_handling()
 
         self._curr_prompt_type = None
         self._curr_prompts = None
+        self._curr_negative_prompts = None
         self._curr_classes = None
         self._curr_frame_width = None
         self._curr_frame_height = None
-
-    def _patch_sam2_memory_dtype_handling(self):
-        # On non-CUDA devices, some SAM2 code paths store memory tensors in
-        # bfloat16, which can later collide with float32 projection weights.
-        # Keep these memory tensors as float32 to avoid matmul dtype mismatch.
-        if self._device.type == "cuda":
-            return
-
-        run_single = getattr(self.model, "_run_single_frame_inference", None)
-        if callable(run_single):
-            run_single_fcn = cast(Any, run_single)
-
-            def _run_single_patched(*args, **kwargs):
-                current_out, pred_masks_gpu = run_single_fcn(*args, **kwargs)
-                maskmem_features = current_out.get("maskmem_features", None)
-                if (
-                    isinstance(maskmem_features, torch.Tensor)
-                    and maskmem_features.dtype == torch.bfloat16
-                ):
-                    current_out["maskmem_features"] = maskmem_features.to(
-                        torch.float32
-                    )
-                return current_out, pred_masks_gpu
-
-            self.model._run_single_frame_inference = _run_single_patched
-
-        run_mem_encoder = getattr(self.model, "_run_memory_encoder", None)
-        if callable(run_mem_encoder):
-            run_mem_encoder_fcn = cast(Any, run_mem_encoder)
-
-            def _run_mem_encoder_patched(*args, **kwargs):
-                maskmem_features, maskmem_pos_enc = run_mem_encoder_fcn(
-                    *args, **kwargs
-                )
-                if (
-                    isinstance(maskmem_features, torch.Tensor)
-                    and maskmem_features.dtype == torch.bfloat16
-                ):
-                    maskmem_features = maskmem_features.to(torch.float32)
-                return maskmem_features, maskmem_pos_enc
-
-            self.model._run_memory_encoder = _run_mem_encoder_patched
 
     @property
     def media_type(self):
@@ -191,13 +192,13 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         if self.ctx is not None:
             with self.ctx:
                 model = entrypoint(
-                    config.entrypoint_args["config_file"],
+                    config.entrypoint_args["model_cfg"],
                     ckpt_path=config.model_path,
                     device=self._device,
                 )
         else:
             model = entrypoint(
-                config.entrypoint_args["config_file"],
+                config.entrypoint_args["model_cfg"],
                 ckpt_path=config.model_path,
                 device=self._device,
             )
@@ -226,11 +227,6 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             if isinstance(val, fol.Detections):
                 dets = cast(Iterable[fol.Detection], val.detections)
                 if any(True for _ in dets):
-                    has_prompt = True
-                    break
-            elif isinstance(val, fol.Keypoints):
-                kpts = cast(Iterable[fol.Keypoint], val.keypoints)
-                if any(True for _ in kpts):
                     has_prompt = True
                     break
 
@@ -266,8 +262,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         except Exception as e:
             if "mat1 and mat2 must have the same dtype" in str(e):
                 raise RuntimeError(
-                    "SAM2 failed due to a tensor dtype mismatch while propagating across frames."
-                    # "Please try with a shorter sequence with continuous frames and consistent labels."
+                    "Error propagating to all frames; please try with a shorter sequence with continuous frames and consistent labels."
                 )
             raise
 
@@ -296,7 +291,21 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     "'prompt_field' should be a frame field for segment anything 2 video model"
                 )
 
-        return prompt_field
+        # Get negative_prompt_field if provided
+        negative_prompt_field = None
+        if "negative_prompt_field" in self.needs_fields:
+            negative_prompt_field = self.needs_fields["negative_prompt_field"]
+            if getattr(self, "media_mode", "video") == "video":
+                if negative_prompt_field.startswith("frames."):
+                    negative_prompt_field = negative_prompt_field[
+                        len("frames.") :
+                    ]
+                else:
+                    raise ValueError(
+                        "'negative_prompt_field' should be a frame field for segment anything 2 video model"
+                    )
+
+        return prompt_field, negative_prompt_field
 
     def _get_prompt_type(self, sample, field_name):
         for _, frame in sample.frames.items():
@@ -305,7 +314,9 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 continue
 
             if isinstance(value, fol.Detections):
-                detections = cast(Iterable[fol.Detection], value.detections)
+                detections = cast(
+                    Iterable[fol.Detection], value.detections
+                )
                 if any(det.mask is not None for det in detections):
                     return "masks"
 
@@ -386,7 +397,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     self._curr_frame_height,
                     chunk_size=1,
                 )
-                box = np.round(box_xyxy.squeeze(axis=0)).astype(np.float32)
+                box = np.round(box_xyxy.squeeze(axis=0)).astype(int)
 
                 if detection.mask is not None:
                     # Prevent SAM2 from running a segmentation inside the box.
@@ -423,6 +434,17 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 mask = np.squeeze(
                     (out_mask_logits[i] > 0.0).cpu().numpy(), axis=0
                 )
+
+                if (
+                    self._curr_negative_prompts
+                    and out_frame_idx < len(self._curr_negative_prompts)
+                ):
+                    mask = _subtract_negative_box_regions(
+                        mask,
+                        self._curr_negative_prompts[out_frame_idx],
+                        self._curr_frame_width,
+                        self._curr_frame_height,
+                    )
 
                 box = fosam._mask_to_box(mask)
                 if box is None:
@@ -503,6 +525,32 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     self._curr_frame_height,
                     keypoint,
                 )
+
+                if (
+                    self._curr_negative_prompts
+                    and frame_idx < len(self._curr_negative_prompts)
+                ):
+                    neg_frame_keypoints = self._curr_negative_prompts[
+                        frame_idx
+                    ]
+                    if (
+                        neg_frame_keypoints
+                        and isinstance(neg_frame_keypoints, fol.Keypoints)
+                        and len(neg_frame_keypoints.keypoints) > 0
+                    ):
+                        neg_keypoints = cast(
+                            Iterable[Any], neg_frame_keypoints.keypoints
+                        )
+                        for neg_keypoint in neg_keypoints:
+                            neg_points, _ = fosam._to_sam_points(
+                                neg_keypoint.points,
+                                self._curr_frame_width,
+                                self._curr_frame_height,
+                                neg_keypoint,
+                            )
+                            neg_labels = np.zeros(len(neg_points), dtype=int)
+                            points = np.vstack([points, neg_points])
+                            labels = np.concatenate([labels, neg_labels])
 
                 _, _, _ = self.model.add_new_points_or_box(
                     inference_state=inference_state,
@@ -660,10 +708,10 @@ def load_fiftyone_video_frames_from_image_files(
 
     Temp dir is removed on return.
     """
+    # TODO(neeraja): test with teams
     with tempfile.TemporaryDirectory(prefix="fo_sam2_frames_") as tmpdir:
         frame_filepaths = [
-            get_local_path(sample.frames[ii])
-            for ii in sorted(sample.frames.keys())
+            sample.frames[ii].filepath for ii in sorted(sample.frames.keys())
         ]
 
         for idx, frame_filepath in enumerate(frame_filepaths):
@@ -684,3 +732,4 @@ def _load_video_frames_monkey_patches():
     return fou.MonkeyPatchFunction(
         smutil.load_video_frames, load_fiftyone_video_frames
     )
+
