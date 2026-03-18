@@ -1,10 +1,13 @@
 import numpy as np
 import logging
 from typing import Tuple, Union, Optional, Any, List
+from copy import deepcopy
 
 import fiftyone as fo
 import fiftyone.zoo as foz
+import fiftyone.core.models as fom
 
+from .sam2_local import SegmentAnything2VideoModel
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +15,33 @@ logger = logging.getLogger(__name__)
 SUPPORTED_PROPAGATION_METHODS = [
     "sam2",
 ]
+
+_SAM2_ZOO_MODEL_NAME = "segment-anything-2-hiera-tiny-video-torch"
+_SAM2_LOCAL_TYPE = (
+    f"{SegmentAnything2VideoModel.__module__}."
+    f"{SegmentAnything2VideoModel.__name__}"
+)
+_SAM2_LOCAL_MODEL_CACHE: dict[str, Any] = {}
+
+
+def load_local_sam2(media_mode: str):
+    if media_mode in _SAM2_LOCAL_MODEL_CACHE:
+        return _SAM2_LOCAL_MODEL_CACHE[media_mode]
+
+    foz.ensure_zoo_model_requirements(
+        _SAM2_ZOO_MODEL_NAME, error_level=None, log_success=False
+    )
+    zoo_model, model_path = foz.download_zoo_model(_SAM2_ZOO_MODEL_NAME)
+
+    config_dict = deepcopy(zoo_model.default_deployment_config_dict)
+    config_dict["type"] = _SAM2_LOCAL_TYPE
+    config_dict.setdefault("config", {})
+    config_dict["config"]["media_mode"] = media_mode
+
+    model = fom.load_model(config_dict, model_path=model_path)
+    _SAM2_LOCAL_MODEL_CACHE[media_mode] = model
+
+    return model
 
 
 def get_frame_field_name(field_name: str, media_mode: str) -> str:
@@ -42,10 +72,7 @@ def propagate_annotations_sam2(
         view = view.flatten()
         media_mode = "image"
 
-    model = foz.load_zoo_model(
-        "segment-anything-2-hiera-tiny-video-torch",
-        media_mode=media_mode,
-    )
+    model = load_local_sam2(media_mode=media_mode)
 
     run_view = (
         view.sort_by(sort_field)
