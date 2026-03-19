@@ -139,9 +139,9 @@ For the next PR
 Product requirements
 
 - [x] Supports image datasets
-- [ ] Supports video datasets
-- [ ] Supports dynamically grouped datasets
-- [ ] Propagated labels include instance IDs
+- [x] Supports video datasets
+- [x] Supports dynamically grouped datasets
+- [x] Propagated labels include `instance` (for videos) or `index` fields
 - [ ] < 100ms per frame; faster for single-sample
 
 Other features on the roadmap
