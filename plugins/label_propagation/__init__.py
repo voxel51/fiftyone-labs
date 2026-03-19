@@ -11,6 +11,7 @@ import logging
 import fiftyone as fo
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
+import fiftyone.utils.labels as foul
 
 from .utils import get_frame_schema
 from .exemplars import (
@@ -354,6 +355,10 @@ class PropagateLabels(foo.Operator):
                 raise RuntimeError(
                     f"Unsupported propagation method '{propagation_method}'"
                 )
+            if view.media_type == "video":
+                # instances keyed by (id, label, index); not common for image datasets
+                foul.index_to_instance(view, output_annotation_field)
+
         except RuntimeError as e:
             error_msg = str(e)
             logger.error(error_msg)
