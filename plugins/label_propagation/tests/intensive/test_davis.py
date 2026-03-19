@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+from requests import session
 from scipy.stats import spearmanr, pearsonr
 
 import fiftyone as fo
@@ -77,9 +78,16 @@ def partially_labeled_grouped_dataset_view(
 
 @pytest.fixture
 def video_dataset_view():
-    dataset = foz.load_zoo_dataset("quickstart-video").limit(2)
-    dataset.match_frames(F("frame_number") <= 4).keep_frames()
-    return dataset
+    dataset = foz.load_zoo_dataset(
+        "https://github.com/voxel51/davis-2017",
+        dataset_name="davis-2017-video-validation",
+        split="validation",
+        format="video",
+    )
+    SELECT_SEQUENCES = ["bike-packing", "bmx-trees"]
+    dataset_view = dataset.match_tags(SELECT_SEQUENCES)
+    dataset_view.match_frames(F("frame_number") <= 4).keep_frames()
+    return dataset_view
 
 
 @pytest.fixture
@@ -100,7 +108,7 @@ def partially_labeled_video_dataset_view(video_dataset_view):
     )
     (
         video_dataset_view.match_frames(F("frame_number") == 1)
-        .set_field("frames.labels_test", F("detections"))
+        .set_field("frames.labels_test", F("ground_truth"))
         .save()
     )
 
@@ -303,6 +311,8 @@ def test_propagate_labels_video(partially_labeled_video_dataset_view):
         )
     ]
     assert np.min(areas) > 0.1
+
+    # TODO(neeraja): get this to pass for Teams
 
     # TODO(neeraja): add evaluation [in a follow-up PR]
 

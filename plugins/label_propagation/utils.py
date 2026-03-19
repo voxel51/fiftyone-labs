@@ -1,4 +1,5 @@
 import fiftyone as fo
+import fiftyone.core.storage as fos
 
 
 def get_frame_schema(ds: fo.Dataset) -> dict:
@@ -11,3 +12,11 @@ def get_frame_schema(ds: fo.Dataset) -> dict:
         return frame_level_schema
     else:
         return ds.get_field_schema()
+
+
+def get_local_path(sample_or_frame):
+    return (
+        sample_or_frame.filepath
+        if fos.is_local(sample_or_frame.filepath)
+        else sample_or_frame.local_path
+    )

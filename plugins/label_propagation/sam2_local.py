@@ -19,12 +19,15 @@ import fiftyone.core.labels as fol
 import fiftyone.core.media as focm
 import fiftyone.core.models as fom
 import fiftyone.core.utils as fou
+import fiftyone.core.storage as fos
 import fiftyone.utils.sam as fosam
 from fiftyone.utils.sam2 import (
     SegmentAnything2VideoModel as FiftyOneSegmentAnything2VideoModel,
 )
 import fiftyone.utils.torch as fout
 import fiftyone.zoo.models as fozm
+
+from .utils import get_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -705,10 +708,10 @@ def load_fiftyone_video_frames_from_image_files(
 
     Temp dir is removed on return.
     """
-    # TODO(neeraja): test with teams
     with tempfile.TemporaryDirectory(prefix="fo_sam2_frames_") as tmpdir:
         frame_filepaths = [
-            sample.frames[ii].filepath for ii in sorted(sample.frames.keys())
+            get_local_path(sample.frames[ii])
+            for ii in sorted(sample.frames.keys())
         ]
 
         for idx, frame_filepath in enumerate(frame_filepaths):
