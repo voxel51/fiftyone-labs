@@ -161,7 +161,8 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             self.ctx = _load_video_frames_monkey_patches()
         except Exception as e:
             logger.error(
-                "Failed to monkey patch sam2.utils.misc.load_video_frames: %s", e
+                "Failed to monkey patch sam2.utils.misc.load_video_frames: %s",
+                e,
             )
             self.ctx = None
 
@@ -314,9 +315,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 continue
 
             if isinstance(value, fol.Detections):
-                detections = cast(
-                    Iterable[fol.Detection], value.detections
-                )
+                detections = cast(Iterable[fol.Detection], value.detections)
                 if any(det.mask is not None for det in detections):
                     return "masks"
 
@@ -435,9 +434,8 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     (out_mask_logits[i] > 0.0).cpu().numpy(), axis=0
                 )
 
-                if (
+                if self._curr_negative_prompts and out_frame_idx < len(
                     self._curr_negative_prompts
-                    and out_frame_idx < len(self._curr_negative_prompts)
                 ):
                     mask = _subtract_negative_box_regions(
                         mask,
@@ -526,9 +524,8 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     keypoint,
                 )
 
-                if (
+                if self._curr_negative_prompts and frame_idx < len(
                     self._curr_negative_prompts
-                    and frame_idx < len(self._curr_negative_prompts)
                 ):
                     neg_frame_keypoints = self._curr_negative_prompts[
                         frame_idx
@@ -732,4 +729,3 @@ def _load_video_frames_monkey_patches():
     return fou.MonkeyPatchFunction(
         smutil.load_video_frames, load_fiftyone_video_frames
     )
-
