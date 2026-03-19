@@ -8,6 +8,8 @@ import fiftyone as fo
 import fiftyone.core.media as fom
 import fiftyone.core.odm.document as fcod
 
+from .utils import get_local_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,7 +113,7 @@ def _frame_gen_from_image_dataset(
     samples: fo.core.collections.SampleCollection,  # type: ignore[reportUnknownReturnType]
 ) -> Iterator[np.ndarray]:
     for sample in samples.iter_samples():
-        frame = cv2.imread(sample.filepath)
+        frame = cv2.imread(get_local_path(sample))
         yield frame
 
 
@@ -119,9 +121,9 @@ def _frame_gen_from_video(
     sample: fo.Sample,
     max_frames: Optional[int] = None,
 ) -> Iterator[np.ndarray]:
-    cap = cv2.VideoCapture(sample.filepath)
+    cap = cv2.VideoCapture(get_local_path(sample))
     if not cap.isOpened():
-        logger.warning(f"Failed to open video: {sample.filepath}")
+        logger.warning(f"Failed to open video: {get_local_path(sample)}")
         return
     try:
         frame_count = 0

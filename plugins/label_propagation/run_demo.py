@@ -5,11 +5,6 @@ import fiftyone.zoo as foz
 import fiftyone.operators as foo
 from fiftyone.core.expressions import ViewField as F
 
-os.environ["VFF_EXP_ANNOTATION"] = "1"
-print("\n--------------------------------")
-print("Make sure your fiftyone installation is on the latest `develop`")
-print("--------------------------------\n")
-
 
 def get_video_from_images(dataset_view):
     import imageio
@@ -170,7 +165,7 @@ if __name__ == "__main__":
     session = fo.launch_app(view)
 
     print("\n--------------------------------")
-    print("Annotate some frames and propagate with the operator")
+    print("The `labesl_test` field contains annotations to be propagated.")
     print("--------------------------------\n")
 
     input("Press Enter to close the app...")
