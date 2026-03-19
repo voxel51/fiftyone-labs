@@ -305,3 +305,31 @@ def test_propagate_labels_video(partially_labeled_video_dataset_view):
     assert np.min(areas) > 0.1
 
     # TODO(neeraja): add evaluation [in a follow-up PR]
+
+    all_indices = partially_labeled_video_dataset_view.values(
+        "frames.labels_test_propagated.detections.index"
+    )
+    for sample_indices in all_indices:
+        assert (
+            len(set(sample_indices[0]).intersection(set(sample_indices[-1])))
+            > 0
+        )
+
+    all_instances = partially_labeled_video_dataset_view.values(
+        "frames.labels_test_propagated.detections.instance"
+    )
+    for sample_instances in all_instances:
+        instance_ids_first_frame = [
+            str(instance["_id"]) for instance in sample_instances[0]
+        ]
+        instance_ids_last_frame = [
+            str(instance["_id"]) for instance in sample_instances[-1]
+        ]
+        assert (
+            len(
+                set(instance_ids_first_frame).intersection(
+                    set(instance_ids_last_frame)
+                )
+            )
+            > 0
+        )
