@@ -196,9 +196,9 @@ def test_temporal_segment_exemplar_scoring(request, view_fixture):
 
     temporal_classifications = view.values("temporal_segments_test")
     exemplar_scores = [
-        getattr(c.classifications[0], "exemplar_score", 0)
-        for c in temporal_classifications
-        if c and c.classifications
+        getattr(cc.classifications[0], "exemplar_score", 0)
+        for cc in temporal_classifications
+        if cc and cc.classifications
     ]
     assert (
         np.abs(np.mean(exemplar_scores) - 1.0 / len(temporal_classifications))

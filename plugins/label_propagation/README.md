@@ -38,7 +38,7 @@ This plugin exposes the following operators for use in the FiftyOne App and the 
   - **Must be different** from `input_annotation_field` to prevent accidental overwriting of ground truth annotations
 
 - **`sort_field`** (string, optional)
-  - **[For image datasets only]** Field used to sort samples before propagation, intended as a temporal index
+  - **[For image/grouped datasets only]** Field used to sort samples before propagation, intended as a temporal index
   - If the view has this field, frames are ordered by it; otherwise, the operator falls back to the default dataset order
 
 ### Usage in the FiftyOne App
@@ -68,7 +68,9 @@ On success, you should see a message similar to:<br>
 
 ## Operator: `temporal_segmentation`
 
-Populates an `fo.Classifications` field with temporal segment labels. Each classification has a `label` (segment id) and an `exemplar_score` (float, initially 0).
+**For image/grouped datasets:** Populates an `fo.Classifications` field with temporal segment labels. Each classification has a `label` (segment id) and an `exemplar_score` (float, initially 0).
+
+**For video datasets:** Populates an `fo.TemporalDetections` field. Each classification has a `label` (segment id). Since this is a sample-level field (not frame-level), no `exemplar_score` is assigned. [To be restructured once frame-level annotation is enabled.]
 
 ### Parameters
 
@@ -94,7 +96,7 @@ Populates an `fo.Classifications` field with temporal segment labels. Each class
 
 ## Operator: `select_exemplars`
 
-Only valid with an existing `fo.Classifications` field with temporal segment labels. Assigns an `exemplar_score` to each label of sample, indicating how valuable it is for this sample to be an exemplar for said temporal segment.
+**[For image/grouped datasets only]** Only valid with an existing `fo.Classifications` field with temporal segment labels. Assigns an `exemplar_score` to each label of sample, indicating how valuable it is for this sample to be an exemplar for said temporal segment.
 
 ### Parameters
 
@@ -108,7 +110,7 @@ Only valid with an existing `fo.Classifications` field with temporal segment lab
   - Presently, only supports a single method, where the first frame of each segment gets score 1, others get 0. This is due to the lack of backward/bidirectional label propagation support.
 
 - **`sort_field`** (string, optional)
-  - **[For image datasets only]** Field used to sort samples before propagation, intended as a temporal index
+  - **[For image/grouped datasets only]** Field used to sort samples before propagation, intended as a temporal index
   - If the view has this field, frames are ordered by it; otherwise, the operator falls back to the default dataset order
 
 ---
@@ -118,7 +120,7 @@ Only valid with an existing `fo.Classifications` field with temporal segment lab
 The **Label Propagation** panel provides an interactive UI for the complete workflow:
 
 1. Open the panel from the FiftyOne App sidebar
-2. **[For image datasets]** Configure the sort field for indicating the temporal sequence of images.
+2. **[For image/grouped datasets]** Configure the sort field for indicating the temporal sequence of images.
 3. Configure the temporal segments field -- this may already exist, or will be where temporal detections are stored.
 4. If the entire dataset does not belong to a single video scene (i.e., has discontinuities), run **Temporal Segmentation**. You can now select a segment label to open its propagation view (samples belonging to that temporal detection label)
 5. Optionally, run **Exemplar Selection**. This will populate the `exemplar_score` field within the temporal segments classifications, to suggest how valuable of an exemplar each sample would be.

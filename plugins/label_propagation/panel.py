@@ -182,11 +182,22 @@ class LabelPropagationPanel(foo.Panel):
 
         segment_to_ids = {}
 
+        def _flattened_values(values):
+            for labels in values:
+                if labels is None:
+                    continue
+                if isinstance(labels, (list, tuple, np.ndarray)):
+                    for label in labels:
+                        if label is not None:
+                            yield label
+                else:
+                    yield labels
+
         if view.media_type == fom.VIDEO:
             segment_ids = set(
-                np.array(
+                _flattened_values(
                     view.values(f"{segments_field}.detections.label")
-                ).flatten()
+                )
             )
 
             # for videos, segments are interpreted as clips
@@ -200,9 +211,9 @@ class LabelPropagationPanel(foo.Panel):
 
         else:
             segment_ids = set(
-                np.array(
+                _flattened_values(
                     view.values(f"{segments_field}.classifications.label")
-                ).flatten()
+                )
             )
 
             for seg_id in segment_ids:
