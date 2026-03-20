@@ -32,8 +32,8 @@ _Enable capture mode by checking the box_
 
 The panel has two modes of operation:
 
-- [Multiple Click Capture](#multi-click-mode): Users can save multiple sets of clicks and manually trigger segmentation.
-- [Single Click Capture](#single-click-mode): Users can click on the sample modal and segmentation will auto-triggered.
+- [Multiple Click Capture](#multiple-click-capture): Users can save multiple sets of clicks and manually trigger segmentation.
+- [Single Click Capture](#single-click-capture): Users can click on the sample modal and segmentation will auto-trigger.
 
 #### Multiple Click Capture
 

@@ -95,6 +95,7 @@ jobs:
           python -m pytest \
             ./plugins/ \
             --ignore-glob="**/tests/intensive" \
+            --ignore-glob="**/tests/cloud" \
             --verbose \
             --tb=short \
             --cov=. \

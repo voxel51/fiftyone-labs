@@ -1,6 +1,8 @@
 ---
 default: true
 
-MD013: # Line Length
-  code_blocks: false
-  tables: false
+MD013: false # Line Length
+MD024: false # Multiple headings with the same content (intentional in API docs)
+MD033: false # Inline HTML (intentional use of img, table, br in READMEs)
+MD036: false # Emphasis used instead of a heading (intentional step captions)
+MD059: false # Descriptive link text (minor style preference)
