@@ -442,7 +442,9 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 ):
                     mask = _subtract_negative_box_regions(
                         mask,
-                        self._curr_negative_prompts[out_frame_idx],
+                        self._curr_negative_prompts[  # pylint: disable=unsubscriptable-object
+                            out_frame_idx
+                        ],
                         self._curr_frame_width,
                         self._curr_frame_height,
                     )
@@ -530,7 +532,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 if self._curr_negative_prompts and frame_idx < len(
                     self._curr_negative_prompts
                 ):
-                    neg_frame_keypoints = self._curr_negative_prompts[
+                    neg_frame_keypoints = self._curr_negative_prompts[  # pylint: disable=unsubscriptable-object
                         frame_idx
                     ]
                     if (
