@@ -26,7 +26,7 @@ def image_dataset_view():
     cloud_dir = "gs://voxel51-test/DAVIS-2017/"
     rel_dir = "/".join(dataset.first()["filepath"].split("/")[:-2])
 
-    fos.upload_media(
+    fos.upload_media(  # pylint: disable=no-member
         dataset_view,
         cloud_dir,
         rel_dir=rel_dir,
@@ -52,7 +52,7 @@ def video_dataset_view():
     cloud_dir = "gs://voxel51-test/DAVIS-2017/"
     rel_dir = "/".join(dataset.first()["filepath"].split("/")[:-2])
 
-    fos.upload_media(
+    fos.upload_media(  # pylint: disable=no-member
         dataset_view,
         cloud_dir,
         rel_dir=rel_dir,

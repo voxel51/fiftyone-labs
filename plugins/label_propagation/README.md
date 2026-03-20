@@ -8,7 +8,7 @@ This plugin exposes the following operators for use in the FiftyOne App and the 
 - `temporal_segmentation` — populates temporal segment classifications
 - `select_exemplars` — sets exemplar scores on segment classifications
 
-### Requirements
+## Requirements
 
 - **FiftyOne** installed and configured
 - **SAM 2** installed:<br>
