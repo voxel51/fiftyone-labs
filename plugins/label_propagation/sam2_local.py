@@ -233,6 +233,11 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 if any(True for _ in dets):
                     has_prompt = True
                     break
+            elif isinstance(val, fol.Keypoints):
+                kpts = cast(Iterable[fol.Keypoint], val.keypoints)
+                if any(True for _ in kpts):
+                    has_prompt = True
+                    break
 
         if not has_prompt:
             return [fol.Detections() for _ in (samples or [])]

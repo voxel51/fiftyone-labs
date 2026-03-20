@@ -103,7 +103,6 @@ class TemporalSegmentation(foo.Operator):
 
         if temporal_segments_field not in dataset.get_field_schema():
             if dataset.media_type == "video":
-                # TODO(neeraja): haven't verified for video yet!!!
                 dataset.add_sample_field(
                     temporal_segments_field,
                     fo.EmbeddedDocumentField,
@@ -153,7 +152,7 @@ class SelectExemplars(foo.Operator):
 
     def validate_input(self, ctx) -> bool:
         temporal_segments_field = ctx.params.get("temporal_segments_field")
-        schema = get_frame_schema(ctx.dataset)
+        schema = ctx.dataset.get_field_schema()
         if temporal_segments_field in schema:
             ft = type(schema[temporal_segments_field]).__name__
             if ft != "EmbeddedDocumentField":

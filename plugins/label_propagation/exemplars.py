@@ -199,10 +199,9 @@ def extract_temporal_segments(
                                 support=[seg_start, seg_end - 1],
                             )
                         )
-                        seg_start = seg_end + 1
+                        seg_start = seg_end
                     prev_label = curr_label
             # end of iteration
-            seg_end = frame_idx + 1
             if prev_label:
                 temporal_detections.append(
                     fo.TemporalDetection(
@@ -248,6 +247,10 @@ def select_exemplars(
             if seg_view.has_field(sort_field):
                 seg_view = seg_view.sort_by(sort_field)
 
+            seg_view.set_field(
+                f"{temporal_segments_field}.classifications.exemplar_score",
+                0.0,
+            )
             first_sample = seg_view.first()
             first_sample_segments = first_sample.get_field(
                 temporal_segments_field
