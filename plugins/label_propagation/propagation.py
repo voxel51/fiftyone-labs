@@ -114,7 +114,7 @@ def propagate_annotations_sam2(
         # label_field is applied directly to the frame-level field
         label_field=output_field,
         prompt_field=input_annotation_field,
-        batch_size=int(2 ** np.ceil(np.log2(len(run_view)))),  # type: ignore[arg-type]
+        batch_size=int(2 ** np.ceil(np.log2(max(0, len(run_view))))),  # type: ignore[arg-type]
         progress=progress,
         skip_failures=False,
     )
