@@ -12,8 +12,8 @@ FiftyOne Labs brings research solutions and experimental features for machine le
 This repository contains a curated collection of
 FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem](https://docs.voxel51.com/plugins/index.html). These features are organized into the following categories:
 
-- [Machine Learning Lab](#ml-features): core machine learning experimental features
-- [Visualization Lab](#visualization-features): features for advanced visualization
+- [Machine Learning Lab](#machine-learning-lab): core machine learning experimental features
+- [Visualization Lab](#visualization-lab): features for advanced visualization
 
 ## Machine Learning Lab
 
