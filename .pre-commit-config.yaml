@@ -28,7 +28,7 @@ repos:
             plugins/click_segmentation/.*.lock
           )$
         args:
-          - -L=fo,fom
+          - --ignore-words=.codespell-ignore-words
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.38.0
     hooks:

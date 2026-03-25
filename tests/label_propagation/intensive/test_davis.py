@@ -11,6 +11,8 @@ import fiftyone.zoo as foz
 import fiftyone.operators as foo
 from fiftyone.core.expressions import ViewField as F
 
+from ...suc_utils import evaluate_matched
+
 
 @pytest.fixture
 def image_dataset_view():
@@ -253,20 +255,15 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    detection_area = (
-        lambda det: (det.bounding_box[2] * det.bounding_box[3])
-        if det.bounding_box is not None
-        else 0
-    )
-    areas = [
-        sum([detection_area(det) for det in prop])
-        for prop in partially_labeled_view.values(
-            "labels_test_propagated.detections"
-        )
-    ]
-    assert np.min(areas) > 0.35
+    pred_detections = partially_labeled_view.values("labels_test_propagated")
+    gt_detections = partially_labeled_view.values("ground_truth")
 
-    # TODO(neeraja): add evaluation [in a follow-up PR]
+    scores = []
+    for pred, gt in zip(pred_detections, gt_detections):
+        scores.append(evaluate_matched(pred, gt))
+
+    print("per frame scores: ", scores)
+    assert np.min(scores) > 0.9
 
     indices = partially_labeled_view.values(
         "labels_test_propagated.detections.index"
@@ -293,24 +290,22 @@ def test_propagate_labels_video(partially_labeled_video_dataset_view):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    detection_area = (
-        lambda det: (det.bounding_box[2] * det.bounding_box[3])
-        if det.bounding_box is not None
-        else 0
+    pred_detections = partially_labeled_video_dataset_view.values(
+        "frames.labels_test_propagated"
     )
-    areas = [
-        sum(
-            detection_area(det)
-            for frame_detections in sample_detections
-            for det in frame_detections
-        )
-        for sample_detections in partially_labeled_video_dataset_view.values(
-            "frames.labels_test_propagated.detections"
-        )
-    ]
-    assert np.min(areas) > 0.1
+    gt_detections = partially_labeled_video_dataset_view.values(
+        "frames.ground_truth"
+    )
 
-    # TODO(neeraja): add evaluation [in a follow-up PR]
+    scores = []
+    for sample_pred_detections, sample_gt_detections in zip(
+        pred_detections, gt_detections
+    ):
+        for pred, gt in zip(sample_pred_detections, sample_gt_detections):
+            scores.append(evaluate_matched(pred, gt))
+
+    print("per frame scores: ", scores)
+    assert np.min(scores) > 0.9
 
     all_indices = partially_labeled_video_dataset_view.values(
         "frames.labels_test_propagated.detections.index"
