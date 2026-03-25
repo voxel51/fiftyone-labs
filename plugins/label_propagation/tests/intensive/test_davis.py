@@ -312,8 +312,6 @@ def test_propagate_labels_video(partially_labeled_video_dataset_view):
     ]
     assert np.min(areas) > 0.1
 
-    # TODO(neeraja): get this to pass for Teams
-
     # TODO(neeraja): add evaluation [in a follow-up PR]
 
     all_indices = partially_labeled_video_dataset_view.values(

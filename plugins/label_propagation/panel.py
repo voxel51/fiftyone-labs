@@ -194,7 +194,7 @@ class LabelPropagationPanel(foo.Panel):
                     yield labels
 
         if view.media_type == fom.VIDEO:
-            segment_ids = set(
+            segment_labels = set(
                 _flattened_values(
                     view.values(f"{segments_field}.detections.label")
                 )
@@ -203,28 +203,28 @@ class LabelPropagationPanel(foo.Panel):
             # for videos, segments are interpreted as clips
             clips_view = view.to_clips(segments_field)
 
-            for seg_id in segment_ids:
+            for seg_label in segment_labels:
                 seg_view = clips_view.match(
-                    {f"{segments_field}.label": seg_id}
+                    {f"{segments_field}.label": seg_label}
                 )
-                segment_to_ids[seg_id] = list(seg_view.values("id"))
+                segment_to_ids[seg_label] = list(seg_view.values("id"))
 
         else:
-            segment_ids = set(
+            segment_labels = set(
                 _flattened_values(
                     view.values(f"{segments_field}.classifications.label")
                 )
             )
 
-            for seg_id in segment_ids:
+            for seg_label in segment_labels:
                 seg_view = view.match(
                     {
                         f"{segments_field}.classifications": {
-                            "$elemMatch": {"label": seg_id}
+                            "$elemMatch": {"label": seg_label}
                         }
                     }
                 )
-                segment_to_ids[seg_id] = list(seg_view.values("id"))
+                segment_to_ids[seg_label] = list(seg_view.values("id"))
 
         ctx.panel.state.segments = segment_to_ids
         if segment_to_ids:

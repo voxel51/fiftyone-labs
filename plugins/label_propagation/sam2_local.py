@@ -23,6 +23,7 @@ import fiftyone.core.storage as fos
 import fiftyone.utils.sam as fosam
 from fiftyone.utils.sam2 import (
     SegmentAnything2VideoModel as FiftyOneSegmentAnything2VideoModel,
+    SegmentAnything2VideoModelConfig as FiftyOneSegmentAnything2VideoModelConfig,
 )
 import fiftyone.utils.torch as fout
 import fiftyone.zoo.models as fozm
@@ -114,7 +115,7 @@ def _subtract_negative_box_regions(
 
 
 class SegmentAnything2VideoModelConfig(
-    fout.TorchImageModelConfig, fozm.HasZooModel
+    FiftyOneSegmentAnything2VideoModelConfig
 ):
     """Configuration for running a :class:`SegmentAnything2VideoModel`.
 
