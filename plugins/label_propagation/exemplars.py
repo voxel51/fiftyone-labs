@@ -230,16 +230,16 @@ def select_exemplars(
         Hence, the first sample in each segment gets a score of 1.0,
         and the rest get 0.0s.
         """
-        segment_ids = set(
+        segment_labels = set(
             np.array(
                 view.values(f"{temporal_segments_field}.classifications.label")
             ).flatten()
         )
-        for seg_id in segment_ids:
+        for seg_label in segment_labels:
             seg_view = view.match(
                 {
                     f"{temporal_segments_field}.classifications": {
-                        "$elemMatch": {"label": seg_id}
+                        "$elemMatch": {"label": seg_label}
                     }
                 }
             )
@@ -256,7 +256,7 @@ def select_exemplars(
                 temporal_segments_field
             ).classifications
             for seg in first_sample_segments:
-                if seg.label == seg_id:
+                if seg.label == seg_label:
                     seg.exemplar_score = 1.0
             first_sample[
                 temporal_segments_field
