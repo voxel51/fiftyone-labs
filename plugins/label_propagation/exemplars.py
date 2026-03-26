@@ -25,7 +25,13 @@ SUPPORTED_EXEMPLAR_SCORING_METHODS = [
 ]
 
 
-def _frame_discontinuity(img_a: np.ndarray, img_b: np.ndarray) -> bool:
+def frame_discontinuity(
+    img_a: np.ndarray, img_b: np.ndarray,
+    target_size: Tuple[int, int] = (256, 256),
+    gray_corr_threshold: float = 0.9,
+    hsv_corr_threshold: float = 0.9,
+    gray_diff_threshold: int = 30,
+) -> bool:
     """
     Check if the two image arrays are "continuous enough".
 
@@ -37,16 +43,11 @@ def _frame_discontinuity(img_a: np.ndarray, img_b: np.ndarray) -> bool:
         True if a large discontinuity is detected between the two images,
         False otherwise
     """
-    TARGET_SIZE = (256, 256)
-    GRAY_CORR_THRESHOLD = 0.9
-    HSV_CORR_THRESHOLD = 0.9
-    GRAY_DIFF_THRESHOLD = 30
-
     if img_a is None or img_b is None:
         return True
 
     def get_image_features(img):
-        img_resized = cv2.resize(img, TARGET_SIZE)
+        img_resized = cv2.resize(img, target_size)
         gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
         hsv = cv2.cvtColor(img_resized, cv2.COLOR_BGR2HSV)
         gray_hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
@@ -67,9 +68,9 @@ def _frame_discontinuity(img_a: np.ndarray, img_b: np.ndarray) -> bool:
     gray_diff = np.median(cv2.absdiff(gray_a, gray_b))
 
     is_discontinuous = (
-        gray_correlation < GRAY_CORR_THRESHOLD
-        or hsv_correlation < HSV_CORR_THRESHOLD
-        or gray_diff > GRAY_DIFF_THRESHOLD
+        gray_correlation < gray_corr_threshold
+        or hsv_correlation < hsv_corr_threshold
+        or gray_diff > gray_diff_threshold
     )
 
     return is_discontinuous
@@ -94,7 +95,7 @@ def _compute_temporal_segments_from_frames(
         curr_segment_label = ""
         prev_frame = None
         for frame in frames:
-            if prev_frame is None or _frame_discontinuity(prev_frame, frame):
+            if prev_frame is None or frame_discontinuity(prev_frame, frame):
                 segment_count += 1
                 curr_segment_label = str(fcod.ObjectId())
 
