@@ -30,7 +30,7 @@ def image_dataset_view(request):
     dataset_view = dataset.match_tags([sequence]).sort_by("frame_number")
 
     for ii, sample in enumerate(dataset_view.iter_samples()):
-        if ii%2 == 0:
+        if ii % 2 == 0:
             sample["labels_test"] = sample["ground_truth"]
             sample.save()
 
@@ -39,7 +39,9 @@ def image_dataset_view(request):
 
 def test_sam2_dtype_handling(image_dataset_view):
     sequence_ids = image_dataset_view.values("id")
-    three_frame_view = image_dataset_view.select([sequence_ids[0], sequence_ids[1], sequence_ids[2]])
+    three_frame_view = image_dataset_view.select(
+        [sequence_ids[0], sequence_ids[1], sequence_ids[2]]
+    )
     ctx = {
         "dataset": three_frame_view._dataset,
         "view": three_frame_view,
