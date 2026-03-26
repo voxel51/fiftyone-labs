@@ -93,9 +93,9 @@ jobs:
           export PYTHONPATH="${PWD}:${{ github.workspace }}/fiftyone:${PYTHONPATH}"
 
           python -m pytest \
-            ./plugins/ \
-            --ignore-glob="**/tests/intensive" \
-            --ignore-glob="**/tests/cloud" \
+            ./tests/ \
+            --ignore-glob="**/intensive" \
+            --ignore-glob="**/cloud" \
             --verbose \
             --tb=short \
             --cov=. \

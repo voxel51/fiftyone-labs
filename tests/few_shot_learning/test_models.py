@@ -7,12 +7,12 @@ import pytest
 from pathlib import Path
 import sys
 
-# Ensure `few_shot_learning` package is importable from repo root test runs.
-PLUGIN_PARENT = Path(__file__).resolve().parents[2]
+_TEST_PKG_DIR = Path(__file__).resolve().parent
+PLUGIN_PARENT = _TEST_PKG_DIR.parent.parent / "plugins" / _TEST_PKG_DIR.name
 if str(PLUGIN_PARENT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_PARENT))
 
-from few_shot_learning.models import (
+from models import (  # type: ignore
     SUPPORTED_MODEL_NAMES,
     get_model,
 )
@@ -65,7 +65,7 @@ def test_rocchio_rejects_alpha_hyperparam():
 
 
 def test_stack_embeddings_labels_rejects_mixed_batches():
-    from few_shot_learning.models import _stack_embeddings_and_labels
+    from models import _stack_embeddings_and_labels  # type: ignore
 
     emb = np.random.randn(4, 8).astype(np.float32)
     with pytest.raises(ValueError, match="Mixed batches"):
