@@ -56,6 +56,8 @@ This plugin exposes the following operators for use in the FiftyOne App and the 
 On success, you should see a message similar to:<br>
 `Annotations propagated from <input_field> to <output_field>`
 
+<img src="assets/propagation.png" alt="Label Propagation" width="800">
+
 ### Notes and limitations
 
 - The operator is designed for **image sequences / video frames** where temporal consistency is meaningful.
@@ -127,6 +129,18 @@ The **Label Propagation** panel provides an interactive UI for the complete work
 6. Label frames as needed.
 7. Configure input and output annotation fields, then run `propagate_labels`
 8. Inspect results and iterate
+
+<img src="assets/panel.png" alt="Panel View" width="800">
+
+---
+
+## Try It Yourself
+
+Use the following script with upto 3 scenes and `image/group/video` formats:
+```
+python run_demo.py --num_scenes=2 --media-format=image
+```
+The annotations in `labels_test` exist only for the first frame within each temporal segment -- you can play around with the panel and operators to propagate them to all.
 
 ---
 

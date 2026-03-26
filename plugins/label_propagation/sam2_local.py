@@ -67,53 +67,6 @@ def _to_abs_mask(mask, abs_box, img_width, img_height):
     return mask_framed.astype(np.uint8)
 
 
-def _subtract_negative_box_regions(
-    mask: np.ndarray,
-    neg_detections: Optional[fol.Detections],
-    width: int,
-    height: int,
-) -> np.ndarray:
-    """Subtract negative bounding box regions from a segmentation mask.
-
-    Args:
-        mask: numpy array representing segmentation mask(s). Supports:
-            - 2D (H, W) for video model
-            - 3D (N, H, W) for image model
-            - 4D (N, 1, H, W) for image model
-        neg_detections: a :class:`fiftyone.core.labels.Detections` containing
-            negative prompt boxes, or None
-        width: image/frame width in pixels
-        height: image/frame height in pixels
-
-    Returns:
-        the modified mask with negative regions zeroed out
-    """
-    if neg_detections is None:
-        return mask
-
-    detections = cast(Iterable[fol.Detection], neg_detections.detections)
-    for neg_det in detections:
-        box_xyxy = fosam._to_abs_boxes(
-            np.array([neg_det.bounding_box]), width, height, chunk_size=1
-        )
-        box_abs = np.round(box_xyxy.squeeze()).astype(int)
-        nx1, ny1, nx2, ny2 = (
-            max(0, box_abs[0]),
-            max(0, box_abs[1]),
-            min(width, box_abs[2]),
-            min(height, box_abs[3]),
-        )
-        if nx2 > nx1 and ny2 > ny1:
-            if mask.ndim == 2:
-                mask[ny1:ny2, nx1:nx2] = 0
-            elif mask.ndim == 3:
-                mask[:, ny1:ny2, nx1:nx2] = 0
-            else:
-                mask[:, 0, ny1:ny2, nx1:nx2] = 0
-
-    return mask
-
-
 class SegmentAnything2VideoModelConfig(
     FiftyOneSegmentAnything2VideoModelConfig
 ):
@@ -140,8 +93,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
     """Local wrapper for running Segment Anything 2 inference.
 
     This model supports:
-      - image-mode propagation where `prompt_field` is a *sample-level*
-        field
+      - image-mode propagation where `prompt_field` is a *sample-level* field
       - detection-mask prompts (when `Detection.mask` is present)
       - a monkey-patched `load_video_frames` implementation that can build
         SAM2's internal frame tensors from FiftyOne frame samples via a
@@ -175,7 +127,6 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
         self._curr_prompt_type = None
         self._curr_prompts = None
-        self._curr_negative_prompts = None
         self._curr_classes = None
         self._curr_frame_width = None
         self._curr_frame_height = None
@@ -301,20 +252,11 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     "'prompt_field' should be a frame field for segment anything 2 video model"
                 )
 
-        # Get negative_prompt_field if provided
         negative_prompt_field = None
-        if "negative_prompt_field" in self.needs_fields:
-            negative_prompt_field = self.needs_fields["negative_prompt_field"]
-            if getattr(self, "media_mode", "video") == "video":
-                if negative_prompt_field.startswith("frames."):
-                    negative_prompt_field = negative_prompt_field[
-                        len("frames.") :
-                    ]
-                else:
-                    raise ValueError(
-                        "'negative_prompt_field' should be a frame field for segment anything 2 video model"
-                    )
 
+        # TODO(neeraja): remove negative prompt field from the return value
+        # once fiftyone/fiftyone/utils/sam2.py::SegmentAnything2VideoModel::predict
+        # is edited to not use negative prompts
         return prompt_field, negative_prompt_field
 
     def _get_prompt_type(self, sample, field_name):
@@ -443,18 +385,6 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     (out_mask_logits[i] > 0.0).cpu().numpy(), axis=0
                 )
 
-                if self._curr_negative_prompts and out_frame_idx < len(
-                    self._curr_negative_prompts
-                ):
-                    mask = _subtract_negative_box_regions(
-                        mask,
-                        self._curr_negative_prompts[  # pylint: disable=unsubscriptable-object
-                            out_frame_idx
-                        ],
-                        self._curr_frame_width,
-                        self._curr_frame_height,
-                    )
-
                 box = fosam._mask_to_box(mask)
                 if box is None:
                     continue
@@ -534,31 +464,6 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     self._curr_frame_height,
                     keypoint,
                 )
-
-                if self._curr_negative_prompts and frame_idx < len(
-                    self._curr_negative_prompts
-                ):
-                    neg_frame_keypoints = self._curr_negative_prompts[  # pylint: disable=unsubscriptable-object
-                        frame_idx
-                    ]
-                    if (
-                        neg_frame_keypoints
-                        and isinstance(neg_frame_keypoints, fol.Keypoints)
-                        and len(neg_frame_keypoints.keypoints) > 0
-                    ):
-                        neg_keypoints = cast(
-                            Iterable[Any], neg_frame_keypoints.keypoints
-                        )
-                        for neg_keypoint in neg_keypoints:
-                            neg_points, _ = fosam._to_sam_points(
-                                neg_keypoint.points,
-                                self._curr_frame_width,
-                                self._curr_frame_height,
-                                neg_keypoint,
-                            )
-                            neg_labels = np.zeros(len(neg_points), dtype=int)
-                            points = np.vstack([points, neg_points])
-                            labels = np.concatenate([labels, neg_labels])
 
                 _, _, _ = self.model.add_new_points_or_box(
                     inference_state=inference_state,
