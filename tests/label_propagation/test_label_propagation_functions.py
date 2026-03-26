@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pathlib import Path
 import sys
+from typing import Tuple
 import numpy as np
 import cv2
 
@@ -13,13 +14,10 @@ import fiftyone.operators as foo
 import fiftyone.zoo as foz
 from fiftyone.core.expressions import ViewField as F
 
-_TEST_PKG_DIR = Path(__file__).resolve().parent
-PLUGINS_DIR = _TEST_PKG_DIR.parent.parent / "plugins"
-if str(PLUGINS_DIR) not in sys.path:
-    sys.path.insert(0, str(PLUGINS_DIR))
 
-
-@pytest.fixture(params=["dance-twirl", "motocross-jump", "scooter-black"])
+@pytest.fixture(params=[
+    "dance-twirl", "motocross-jump", "scooter-black"
+])
 def image_dataset_view(request):
     sequence = request.param
     dataset = foz.load_zoo_dataset(
@@ -28,6 +26,16 @@ def image_dataset_view(request):
         format="image",
     )
     dataset_view = dataset.match_tags([sequence]).sort_by("frame_number")
+
+    if "labels_test" in dataset_view._dataset.get_field_schema():
+        dataset_view._dataset.delete_sample_field(
+            "labels_test", error_level=2
+        )
+    dataset_view._dataset.add_sample_field(
+        "labels_test",
+        fo.EmbeddedDocumentField,
+        embedded_doc_type=fo.Detections,
+    )
 
     for ii, sample in enumerate(dataset_view.iter_samples()):
         if ii % 2 == 0:
