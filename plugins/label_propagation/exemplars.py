@@ -26,7 +26,8 @@ SUPPORTED_EXEMPLAR_SCORING_METHODS = [
 
 
 def frame_discontinuity(
-    img_a: np.ndarray, img_b: np.ndarray,
+    img_a: np.ndarray,
+    img_b: np.ndarray,
     target_size: Tuple[int, int] = (256, 256),
     gray_corr_threshold: float = 0.9,
     hsv_corr_threshold: float = 0.9,
