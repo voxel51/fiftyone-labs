@@ -52,7 +52,7 @@ def _to_abs_mask(mask, abs_box, img_width, img_height):
     Returns:
         numpy array relative to the image
     """
-    x1, y1, x2, y2 = abs_box
+    x1, y1, x2, y2 = [int(round(v)) for v in abs_box]
     box_width = x2 - x1
     box_height = y2 - y1
     mask_fitted = np.pad(
@@ -124,12 +124,55 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
         self.model = self._load_model(config)
         self.media_mode = getattr(config, "media_mode", "video")
+        self._patch_sam2_memory_dtype_handling()
 
         self._curr_prompt_type = None
         self._curr_prompts = None
         self._curr_classes = None
         self._curr_frame_width = None
         self._curr_frame_height = None
+
+    def _patch_sam2_memory_dtype_handling(self):
+        # On non-CUDA devices, some SAM2 code paths store memory tensors in
+        # bfloat16, which can later collide with float32 projection weights.
+        # Keep these memory tensors as float32 to avoid matmul dtype mismatch.
+        if self._device.type == "cuda":
+            return
+
+        run_single = getattr(self.model, "_run_single_frame_inference", None)
+        if callable(run_single):
+            run_single_fcn = cast(Any, run_single)
+
+            def _run_single_patched(*args, **kwargs):
+                current_out, pred_masks_gpu = run_single_fcn(*args, **kwargs)
+                maskmem_features = current_out.get("maskmem_features", None)
+                if (
+                    isinstance(maskmem_features, torch.Tensor)
+                    and maskmem_features.dtype == torch.bfloat16
+                ):
+                    current_out["maskmem_features"] = maskmem_features.to(
+                        torch.float32
+                    )
+                return current_out, pred_masks_gpu
+
+            self.model._run_single_frame_inference = _run_single_patched
+
+        run_mem_encoder = getattr(self.model, "_run_memory_encoder", None)
+        if callable(run_mem_encoder):
+            run_mem_encoder_fcn = cast(Any, run_mem_encoder)
+
+            def _run_mem_encoder_patched(*args, **kwargs):
+                maskmem_features, maskmem_pos_enc = run_mem_encoder_fcn(
+                    *args, **kwargs
+                )
+                if (
+                    isinstance(maskmem_features, torch.Tensor)
+                    and maskmem_features.dtype == torch.bfloat16
+                ):
+                    maskmem_features = maskmem_features.to(torch.float32)
+                return maskmem_features, maskmem_pos_enc
+
+            self.model._run_memory_encoder = _run_mem_encoder_patched
 
     @property
     def media_type(self):
@@ -223,7 +266,8 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         except Exception as e:
             if "mat1 and mat2 must have the same dtype" in str(e):
                 raise RuntimeError(
-                    "Error propagating to all frames; please try with a shorter sequence with continuous frames and consistent labels."
+                    "SAM2 failed due to a tensor dtype mismatch while propagating across frames."
+                    # "Please try with a shorter sequence with continuous frames and consistent labels."
                 )
             raise
 
@@ -347,7 +391,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     self._curr_frame_height,
                     chunk_size=1,
                 )
-                box = np.round(box_xyxy.squeeze(axis=0)).astype(int)
+                box = np.round(box_xyxy.squeeze(axis=0)).astype(np.float32)
 
                 if detection.mask is not None:
                     # Prevent SAM2 from running a segmentation inside the box.
