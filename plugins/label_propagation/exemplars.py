@@ -127,7 +127,7 @@ def _frame_gen_from_video(
         return
     try:
         frame_count = 0
-        while True:
+        while cap.isOpened():
             if max_frames is not None and frame_count >= max_frames:
                 break
             ret, frame = cap.read()
