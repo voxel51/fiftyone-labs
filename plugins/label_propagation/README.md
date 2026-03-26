@@ -137,9 +137,11 @@ The **Label Propagation** panel provides an interactive UI for the complete work
 ## Try It Yourself
 
 Use the following script with upto 3 scenes and `image/group/video` formats:
+
 ```
 python run_demo.py --num_scenes=2 --media-format=image
 ```
+
 The annotations in `labels_test` exist only for the first frame within each temporal segment -- you can play around with the panel and operators to propagate them to all.
 
 ---
