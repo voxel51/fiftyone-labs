@@ -138,7 +138,7 @@ The **Label Propagation** panel provides an interactive UI for the complete work
 
 Use the following script with upto 3 scenes and `image/group/video` formats:
 
-```
+```bash
 python run_demo.py --num_scenes=2 --media-format=image
 ```
 
