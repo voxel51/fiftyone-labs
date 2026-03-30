@@ -58,6 +58,10 @@ On success, you should see a message similar to:<br>
 
 <img src="assets/propagation.png" alt="Label Propagation" width="800">
 
+### Delegated Operation
+
+To run the `Propagate Labels` operator with delegated operation, see the instructions [here](https://docs.voxel51.com/plugins/using_plugins.html#delegated-operations). You can also enable delegated operation via the `Label Propagation` panel by checking the `Use delegated operation` checkbox next to the `Run Propagation` button.
+
 ### Notes and limitations
 
 - The operator is designed for **image sequences / video frames** where temporal consistency is meaningful.

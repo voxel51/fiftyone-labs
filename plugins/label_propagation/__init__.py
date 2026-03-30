@@ -241,6 +241,8 @@ class PropagateLabels(foo.Operator):
             light_icon="/assets/labs_icon_light.svg",
             dark_icon="/assets/labs_icon_dark.svg",
             dynamic=True,
+            allow_immediate_execution=True,
+            allow_delegated_execution=True,
         )
 
     def validate_input(self, ctx) -> bool:
@@ -369,6 +371,9 @@ class PropagateLabels(foo.Operator):
                 "message": error_msg,
                 "samples_processed": 0,
             }
+
+        if not ctx.delegated:
+            ctx.ops.reload_dataset()
 
         return {
             "message": f"Annotations propagated from {input_annotation_field} to {output_annotation_field}",

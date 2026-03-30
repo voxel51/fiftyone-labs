@@ -49,6 +49,7 @@ class LabelPropagationPanel(foo.Panel):
         ctx.panel.state.selected_segment = None
         ctx.panel.state.input_annotation_field = None
         ctx.panel.state.output_annotation_field = None
+        ctx.panel.state.use_delegated_operation = False
         self.register_base_view(ctx)
 
     def register_base_view(self, ctx: Any) -> None:
@@ -242,6 +243,12 @@ class LabelPropagationPanel(foo.Panel):
                 "input_annotation_field"
             ]
 
+    def _handle_use_delegated_operation_change(self, ctx: Any) -> None:
+        if "use_delegated_operation" in ctx.params:
+            ctx.panel.state.use_delegated_operation = ctx.params[
+                "use_delegated_operation"
+            ]
+
     def _handle_output_annotation_field_change(self, ctx: Any) -> None:
         """
         - Persist the output annotation field to ctx.panel.state
@@ -364,6 +371,9 @@ class LabelPropagationPanel(foo.Panel):
 
     def _run_propagate_labels(self, ctx: Any) -> None:
         """Execute PropagateLabels operator."""
+        use_delegated = getattr(
+            ctx.panel.state, "use_delegated_operation", False
+        )
         op_ctx = {
             "dataset": ctx.dataset,
             "view": ctx.view,
@@ -385,9 +395,14 @@ class LabelPropagationPanel(foo.Panel):
         result = foo.execute_operator(
             "@51labs/label_propagation/propagate_labels",
             op_ctx,
+            request_delegation=use_delegated,
         )
 
-        if result and hasattr(result, "result"):
+        if use_delegated:
+            ctx.ops.notify(
+                "Propagation queued as a delegated operation", variant="info"
+            )
+        elif result and hasattr(result, "result"):
             message = result.result.get("message", "propagate_labels operator executed")  # type: ignore[attr-defined]
             ctx.ops.notify(message, variant="success")
         else:
@@ -558,6 +573,13 @@ class LabelPropagationPanel(foo.Panel):
             on_change=self._handle_output_annotation_field_change,
         )
 
+        panel.bool(
+            "use_delegated_operation",
+            label="Use delegated operation",
+            default=getattr(ctx.panel.state, "use_delegated_operation", False),
+            description="Queue propagation as a delegated operation (runs in the background)",
+            on_change=self._handle_use_delegated_operation_change,
+        )
         panel.btn(
             "run_propagate_labels",
             label="Run Propagation",
