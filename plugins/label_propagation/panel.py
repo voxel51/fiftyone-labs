@@ -9,7 +9,7 @@ import fiftyone.operators.types as types
 import fiftyone.core.stages as fos
 import fiftyone.core.media as fom
 
-from .utils import get_frame_schema
+from .utils import get_frame_schema, get_auth
 from .exemplars import (
     SUPPORTED_EXEMPLAR_SCORING_METHODS,
     SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
@@ -18,16 +18,6 @@ from .propagation import SUPPORTED_PROPAGATION_METHODS
 
 
 logger = logging.getLogger(__name__)
-
-# TODO(neeraja): remove this once stabilized
-# _log_dir = os.path.join(os.path.dirname(__file__), "logs")
-# os.makedirs(_log_dir, exist_ok=True)
-# _handler = logging.FileHandler(os.path.join(_log_dir, "debug.log"))
-# _handler.setLevel(logging.DEBUG)
-# _handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-# if not logger.handlers:
-#     logger.addHandler(_handler)
-# logger.setLevel(logging.DEBUG)
 
 
 class LabelPropagationPanel(foo.Panel):
@@ -277,7 +267,12 @@ class LabelPropagationPanel(foo.Panel):
             },
         }
         result = foo.execute_operator(
-            "@51labs/label_propagation/temporal_segmentation", op_ctx
+            "@51labs/label_propagation/temporal_segmentation",
+            op_ctx,
+            request_delegation=getattr(
+                ctx.panel.state, "use_delegated_operation", False
+            ),
+            **get_auth(),
         )
         if result and hasattr(result, "result"):
             ctx.ops.notify(result.result.get("message", "Done"), variant="success")  # type: ignore[attr-defined]
@@ -300,7 +295,12 @@ class LabelPropagationPanel(foo.Panel):
             },
         }
         result = foo.execute_operator(
-            "@51labs/label_propagation/select_exemplars", op_ctx
+            "@51labs/label_propagation/select_exemplars",
+            op_ctx,
+            request_delegation=getattr(
+                ctx.panel.state, "use_delegated_operation", False
+            ),
+            **get_auth(),
         )
         if result and hasattr(result, "result"):
             ctx.ops.notify(result.result.get("message", "Done"), variant="success")  # type: ignore[attr-defined]
@@ -396,6 +396,7 @@ class LabelPropagationPanel(foo.Panel):
             "@51labs/label_propagation/propagate_labels",
             op_ctx,
             request_delegation=use_delegated,
+            **get_auth(),
         )
 
         if use_delegated:

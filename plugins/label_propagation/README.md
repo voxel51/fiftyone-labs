@@ -47,6 +47,7 @@ This plugin exposes the following operators for use in the FiftyOne App and the 
 2. Create a view containing the frames you want to process (for example, a subset of sequences or frames).
 3. Ensure that:
    - Exemplar frames (_currently, must include the first frame of the sequence_) have labels in your chosen `input_annotation_field`.
+   - Labels corresponding to a single instance across different frames have the same `index`.
 4. Open the **Operators** dropdown and search for:
    - **Name:** `propagate_labels`
    - **Label:** `Propagate Labels From Input Field Operator`
@@ -130,7 +131,7 @@ The **Label Propagation** panel provides an interactive UI for the complete work
 3. Configure the temporal segments field -- this may already exist, or will be where temporal detections are stored.
 4. If the entire dataset does not belong to a single video scene (i.e., has discontinuities), run **Temporal Segmentation**. You can now select a segment label to open its propagation view (samples belonging to that temporal detection label)
 5. Optionally, run **Exemplar Selection**. This will populate the `exemplar_score` field within the temporal segments classifications, to suggest how valuable of an exemplar each sample would be.
-6. Label frames as needed.
+6. Label frames as needed. If labeling multiple occurrences of the same object, ensure the `index` field is populated and has a unique value for each object.
 7. Configure input and output annotation fields, then run `propagate_labels`
 8. Inspect results and iterate
 
