@@ -13,7 +13,7 @@ import fiftyone.operators as foo
 import fiftyone.operators.types as types
 import fiftyone.utils.labels as foul
 
-from .utils import get_frame_schema
+from .utils import get_frame_schema, auth_context
 from .exemplars import (
     SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
     SUPPORTED_EXEMPLAR_SCORING_METHODS,
@@ -358,7 +358,8 @@ class PropagateLabels(foo.Operator):
                 )
             if view.media_type == "video":
                 # instances keyed by (id, label, index); not common for image datasets
-                foul.index_to_instance(view, output_annotation_field)
+                with auth_context():
+                    foul.index_to_instance(view, output_annotation_field)
 
         except RuntimeError as e:
             error_msg = str(e)
