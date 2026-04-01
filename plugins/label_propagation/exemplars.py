@@ -246,7 +246,7 @@ def select_exemplars(
                 }
             )
 
-            if seg_view.has_field(sort_field):
+            if sort_field and seg_view.has_field(sort_field):
                 seg_view = seg_view.sort_by(sort_field)
 
             seg_view.set_field(
