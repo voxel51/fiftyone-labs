@@ -11,7 +11,12 @@ import fiftyone.zoo as foz
 import fiftyone.operators as foo
 from fiftyone.core.expressions import ViewField as F
 
-from ...suc_utils import evaluate_matched
+_TEST_PKG_DIR = Path(__file__).resolve().parent.parent
+PLUGINS_DIR = _TEST_PKG_DIR.parent.parent / "plugins"
+if str(PLUGINS_DIR) not in sys.path:
+    sys.path.insert(0, str(PLUGINS_DIR))
+
+from label_propagation.suc_utils import evaluate_matched  # type: ignore
 
 
 @pytest.fixture
