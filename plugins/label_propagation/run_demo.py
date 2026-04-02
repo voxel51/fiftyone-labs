@@ -117,9 +117,16 @@ def get_partially_labeled_dataset_view(num_scenes, media_format):
 
         if media_format == "video":
             video_sample = dataset_view.match_tags(seq).first()
-            # label only the first
-            exemplar_sample = video_sample.frames[1]
+
+            # label at the 1/3 and 2/3 positions — exercises forward, backward,
+            # and bidirectional fusion paths in one fixture
+            seq_length = len(video_sample.frames)
+            exemplar_sample = video_sample.frames[seq_length // 3]
             exemplar_sample["labels_test"] = exemplar_sample["ground_truth"]
+            exemplar_sample.save()
+            exemplar_sample = video_sample.frames[seq_length * 2 // 3]
+            exemplar_sample["labels_test"] = exemplar_sample["ground_truth"]
+            exemplar_sample.save()
             video_sample.save()
         else:
             seq_view = dataset_view.match_tags(seq).sort_by("frame_number")
@@ -134,10 +141,12 @@ def get_partially_labeled_dataset_view(num_scenes, media_format):
             )
             new_frame_number += seq_length
 
-            # label only the first
-            exemplar_sample = seq_view.first()
-            exemplar_sample["labels_test"] = exemplar_sample["ground_truth"]
-            exemplar_sample.save()
+            # label at the 1/3 and 2/3 positions — exercises forward, backward,
+            # and bidirectional fusion paths in one fixture
+            for idx in [seq_length // 3, seq_length * 2 // 3]:
+                sample = seq_view.skip(idx).first()
+                sample["labels_test"] = sample["ground_truth"]
+                sample.save()
 
     return dataset_view
 
