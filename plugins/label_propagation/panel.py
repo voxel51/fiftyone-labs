@@ -41,6 +41,7 @@ class LabelPropagationPanel(foo.Panel):
         ctx.panel.state.output_annotation_field = None
         ctx.panel.state.use_delegated_operation = False
         ctx.panel.state.batch_size = 32
+        ctx.panel.state.propagate_bidirectionally = True
         self.register_base_view(ctx)
 
     def register_base_view(self, ctx: Any) -> None:
@@ -235,6 +236,12 @@ class LabelPropagationPanel(foo.Panel):
         if "batch_size" in ctx.params:
             ctx.panel.state.batch_size = ctx.params["batch_size"]
 
+    def _handle_propagate_bidirectionally_change(self, ctx: Any) -> None:
+        if "propagate_bidirectionally" in ctx.params:
+            ctx.panel.state.propagate_bidirectionally = ctx.params[
+                "propagate_bidirectionally"
+            ]
+
     def _handle_use_delegated_operation_change(self, ctx: Any) -> None:
         if "use_delegated_operation" in ctx.params:
             ctx.panel.state.use_delegated_operation = ctx.params[
@@ -393,6 +400,7 @@ class LabelPropagationPanel(foo.Panel):
         self._handle_output_annotation_field_change(ctx)
         self._handle_propagation_method_change(ctx)
         self._handle_batch_size_change(ctx)
+        self._handle_propagate_bidirectionally_change(ctx)
         self._handle_use_delegated_operation_change(ctx)
         use_delegated = getattr(
             ctx.panel.state, "use_delegated_operation", False
@@ -414,6 +422,9 @@ class LabelPropagationPanel(foo.Panel):
                     None,
                 ),
                 "batch_size": getattr(ctx.panel.state, "batch_size", 32),
+                "propagate_bidirectionally": getattr(
+                    ctx.panel.state, "propagate_bidirectionally", True
+                ),
             },
         }
         result = foo.execute_operator(
@@ -605,6 +616,13 @@ class LabelPropagationPanel(foo.Panel):
             description="Maximum number of media samples to process in one pass. Reduce if you run out of memory.",
             min=1,
             default=32,
+        )
+
+        panel.bool(
+            "propagate_bidirectionally",
+            label="Propagate bidirectionally",
+            default=True,
+            description="Run forward and backward SAM2 passes and fuse outputs.",
         )
 
         panel.bool(

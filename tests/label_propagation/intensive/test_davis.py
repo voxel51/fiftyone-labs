@@ -21,7 +21,7 @@ def image_dataset_view():
     )
     SELECT_SEQUENCES = ["bike-packing"]
     dataset_view = dataset.match_tags(SELECT_SEQUENCES)
-    dataset_view = dataset_view.match(F("frame_number").to_int() < 9)
+    dataset_view = dataset_view.match(F("frame_number").to_int() < 20)
     return dataset_view
 
 
@@ -51,17 +51,19 @@ def partially_labeled_image_dataset_view(image_dataset_view):
     new_frame_number = 0
     for seq in sequences:
         seq_slice = image_dataset_view.match_tags(seq).sort_by("frame_number")
+        n = len(seq_slice)
         seq_slice.set_values(
             "new_frame_number",
-            [new_frame_number + ii for ii in range(len(seq_slice))],
+            [new_frame_number + ii for ii in range(n)],
         )
-        new_frame_number += len(seq_slice)
+        new_frame_number += n
 
-        # label only the first
-        # TODO(neeraja): support backward propagation [in a follow-up PR]
-        exemplar_sample = seq_slice.first()
-        exemplar_sample["labels_test"] = exemplar_sample["ground_truth"]
-        exemplar_sample.save()
+        # label at the 1/3 and 2/3 positions — exercises forward, backward,
+        # and bidirectional fusion paths in one fixture
+        for idx in [n // 3, n * 2 // 3]:
+            sample = seq_slice.skip(idx).first()
+            sample["labels_test"] = sample["ground_truth"]
+            sample.save()
 
     return image_dataset_view
 
@@ -86,7 +88,7 @@ def video_dataset_view():
     )
     SELECT_SEQUENCES = ["bike-packing", "bmx-trees"]
     dataset_view = dataset.match_tags(SELECT_SEQUENCES)
-    dataset_view = dataset_view.match_frames(F("frame_number") <= 6)
+    dataset_view = dataset_view.match_frames(F("frame_number") <= 20)
     return dataset_view
 
 
@@ -101,12 +103,22 @@ def partially_labeled_video_dataset_view(video_dataset_view):
             fo.EmbeddedDocumentField,
             embedded_doc_type=fo.Detections,
         )
-    for sample in video_dataset_view.iter_samples(autosave=True):
-        for frame_number, frame in sample.frames.items():
-            if frame_number == 1:
-                frame["labels_test"] = frame["ground_truth"]
-            else:
-                frame["labels_test"] = fo.Detections(detections=[])
+    # Label at 1/3 and 2/3 positions per video — exercises forward, backward,
+    # and bidirectional fusion paths in one fixture.
+    # Frame numbers start at 1; min_fn + n//3 and min_fn + n*2//3 are the targets.
+    (
+        video_dataset_view.set_field(
+            "frames.labels_test", fo.Detections(detections=[])
+        ).save()
+    )
+    for sample in video_dataset_view:
+        frame_numbers = sorted(sample.frames.keys())
+        n = len(frame_numbers)
+        for idx in [n // 3, n * 2 // 3]:
+            fn = frame_numbers[idx]
+            frame = sample.frames[fn]
+            frame["labels_test"] = frame["ground_truth"]
+        sample.save()
 
     return video_dataset_view
 
