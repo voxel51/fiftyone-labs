@@ -82,6 +82,7 @@ def propagate_annotations_sam2(
     input_annotation_field: str,
     output_annotation_field: str,
     sort_field: Optional[str] = None,
+    max_batch_size: int = 32,
     progress: Optional[bool] = True,
 ) -> dict[str, float]:
     """
@@ -97,6 +98,13 @@ def propagate_annotations_sam2(
     if media_mode == "group":
         view = view.flatten()
         media_mode = "image"
+
+    if len(view) > max_batch_size:
+        raise ValueError(
+            f"View has {len(view)} samples, which exceeds max_batch_size "
+            f"{max_batch_size}. Please reduce the number of scenes "
+            f"or frames in the view, or increase 'Max Batch Size'."
+        )
 
     model = load_local_sam2(media_mode=media_mode)
 
@@ -114,7 +122,7 @@ def propagate_annotations_sam2(
         # label_field is applied directly to the frame-level field
         label_field=output_field,
         prompt_field=input_annotation_field,
-        batch_size=int(2 ** np.ceil(np.log2(max(0, len(run_view))))),  # type: ignore[arg-type]
+        batch_size=min(max_batch_size, int(2 ** np.ceil(np.log2(max(0, len(run_view)))))),  # type: ignore[arg-type]
         progress=progress,
         skip_failures=False,
     )
