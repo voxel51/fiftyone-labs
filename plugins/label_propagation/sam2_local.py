@@ -301,6 +301,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         # TODO(neeraja): remove negative prompt field from the return value
         # once fiftyone/fiftyone/utils/sam2.py::SegmentAnything2VideoModel::predict
         # is edited to not use negative prompts
+        # until then, the version is capped in fiftyone.yml
         return prompt_field, negative_prompt_field
 
     def _get_prompt_type(self, sample, field_name):
