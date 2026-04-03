@@ -40,6 +40,7 @@ class LabelPropagationPanel(foo.Panel):
         ctx.panel.state.input_annotation_field = None
         ctx.panel.state.output_annotation_field = None
         ctx.panel.state.use_delegated_operation = False
+        ctx.panel.state.max_batch_size = 32
         self.register_base_view(ctx)
 
     def register_base_view(self, ctx: Any) -> None:
@@ -233,6 +234,10 @@ class LabelPropagationPanel(foo.Panel):
                 "input_annotation_field"
             ]
 
+    def _handle_max_batch_size_change(self, ctx: Any) -> None:
+        if "max_batch_size" in ctx.params:
+            ctx.panel.state.max_batch_size = ctx.params["max_batch_size"]
+
     def _handle_use_delegated_operation_change(self, ctx: Any) -> None:
         if "use_delegated_operation" in ctx.params:
             ctx.panel.state.use_delegated_operation = ctx.params[
@@ -389,6 +394,9 @@ class LabelPropagationPanel(foo.Panel):
                     ctx.panel.state,
                     "propagation_method",
                     None,
+                ),
+                "max_batch_size": getattr(
+                    ctx.panel.state, "max_batch_size", 32
                 ),
             },
         }
@@ -572,6 +580,15 @@ class LabelPropagationPanel(foo.Panel):
             description=f"Field to store propagated annotations (default: {input_annotation_field}_propagated)",
             required=False,
             on_change=self._handle_output_annotation_field_change,
+        )
+
+        panel.int(
+            "max_batch_size",
+            label="Max Batch Size",
+            description="Maximum number of samples to process in one pass. Reduce if you run out of memory.",
+            min=1,
+            default=getattr(ctx.panel.state, "max_batch_size", 32),
+            on_change=self._handle_max_batch_size_change,
         )
 
         panel.bool(

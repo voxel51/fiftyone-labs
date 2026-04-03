@@ -321,6 +321,15 @@ class PropagateLabels(foo.Operator):
             required=False,
         )
 
+        inputs.int(
+            "max_batch_size",
+            label="Max Batch Size",
+            description="Maximum number of samples to process in one pass. Reduce if you run out of memory.",
+            min=1,
+            default=32,
+            required=False,
+        )
+
         return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
@@ -342,6 +351,7 @@ class PropagateLabels(foo.Operator):
             output_annotation_field = f"{input_annotation_field}_propagated"
         propagation_method = ctx.params.get("propagation_method")
         sort_field = ctx.params.get("sort_field", None)
+        max_batch_size = ctx.params.get("max_batch_size", 32)
 
         try:
             if propagation_method == "sam2":
@@ -350,6 +360,7 @@ class PropagateLabels(foo.Operator):
                     input_annotation_field=input_annotation_field,
                     output_annotation_field=output_annotation_field,
                     sort_field=sort_field,
+                    max_batch_size=max_batch_size,
                     progress=True,
                 )
             else:
@@ -361,7 +372,7 @@ class PropagateLabels(foo.Operator):
                 with auth_context():
                     foul.index_to_instance(view, output_annotation_field)
 
-        except RuntimeError as e:
+        except (RuntimeError, ValueError) as e:
             error_msg = str(e)
             logger.error(error_msg)
             ctx.ops.notify(
