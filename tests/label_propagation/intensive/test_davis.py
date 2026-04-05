@@ -248,6 +248,7 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
             "output_annotation_field": "labels_test_propagated",
             "propagation_method": "sam2",
             "sort_field": "new_frame_number",
+            "max_batch_size": 4,
         },
     }
 
