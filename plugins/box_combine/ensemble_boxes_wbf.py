@@ -11,7 +11,6 @@ def prefilter_boxes(boxes, scores, labels, weights, thr):
     new_boxes = dict()
 
     for t in range(len(boxes)):
-
         if len(boxes[t]) != len(scores[t]):
             print(
                 "Error. Length of boxes arrays not equal to length of scores array: {} != {}".format(
@@ -142,7 +141,7 @@ def find_matching_box_fast(boxes_list, new_box, match_iou):
     """
 
     def bb_iou_array(boxes, new_box):
-        # bb interesection over union
+        # bb intersection over union
         xA = np.maximum(boxes[:, 0], new_box[0])
         yA = np.maximum(boxes[:, 1], new_box[1])
         xB = np.minimum(boxes[:, 2], new_box[2])

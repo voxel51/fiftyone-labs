@@ -55,7 +55,3 @@ session = fo.launch_app(dataset)
 
 In the app, select `det_faster_rcnn` and `det_retinanet` labels in the panel on the left. Open `box_combine` operator to fuse the predictions from
 the selected label into a single field using weighted boxes fusion method.
-
-```
-
-```
