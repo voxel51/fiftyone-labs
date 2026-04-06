@@ -5,7 +5,12 @@ from pathlib import Path
 
 import fiftyone.zoo as foz
 
-from ..suc_utils import (
+_TEST_PKG_DIR = Path(__file__).resolve().parent
+PLUGINS_DIR = _TEST_PKG_DIR.parent.parent / "plugins"
+if str(PLUGINS_DIR) not in sys.path:
+    sys.path.insert(0, str(PLUGINS_DIR))
+
+from label_propagation.suc_utils import (
     fit_mask_to_bbox,
     normalized_bbox_to_pixel_coords,
     box_iou,
@@ -156,6 +161,67 @@ class TestEvalMetrics:
         )
         score = evaluate_matched(original, propagated)
         assert score < 1e-6
+
+    def test_evaluate_success_rate_parity(self):
+        # Test case: both lists have 1 object each (overlapping)
+        original = MockDetections([{"bounding_box": [0.1, 0.1, 0.2, 0.2]}])
+        propagated = MockDetections([{"bounding_box": [0.2, 0.2, 0.2, 0.2]}])
+        score = evaluate(original, propagated)
+        score_suc = evaluate_success_rate(original, propagated)
+        assert abs(score - score_suc) < 1e-6
+
+        # Test case: original_detections has 1 object, propagated has 2 (one overlapping mostly)
+        original = MockDetections([{"bounding_box": [0.1, 0.1, 0.2, 0.2]}])
+        propagated = MockDetections(
+            [
+                {"bounding_box": [0.35, 0.35, 0.2, 0.2]},
+                {"bounding_box": [0.11, 0.11, 0.2, 0.2]},
+            ]
+        )
+        score = evaluate(original, propagated)
+        score_suc = evaluate_success_rate(original, propagated)
+        assert abs(score - score_suc) < 1e-6
+
+        # Test case from an example: exactly matching boxes
+        original = MockDetections(
+            [
+                {"bounding_box": [0.869071, 0.448725, 0.108700, 0.243545]},
+                {"bounding_box": [0.836372, 0.592978, 0.027977, 0.050664]},
+            ]
+        )
+        propagated = MockDetections(
+            [
+                {"bounding_box": [0.836372, 0.592978, 0.027977, 0.050664]},
+                {"bounding_box": [0.869071, 0.448725, 0.108700, 0.243545]},
+            ]
+        )
+        score = evaluate(original, propagated)
+        score_suc = evaluate_success_rate(original, propagated)
+        assert abs(score - score_suc) < 1e-6
+
+        # Test case from an example: almost match
+        original = MockDetections(
+            [
+                {"bounding_box": [0.3265, 0.2241, 0.1307, 0.2330]},
+                {"bounding_box": [0.3663, 0.3451, 0.4114, 0.6512]},
+            ]
+        )
+        propagated = MockDetections(
+            [
+                {"bounding_box": [0.326625, 0.225, 0.13125, 0.2306]},
+                {
+                    "bounding_box": [
+                        0.3704375,
+                        0.3473333333333333,
+                        0.4079375,
+                        0.6528,
+                    ]
+                },
+            ]
+        )
+        score = evaluate(original, propagated)
+        score_suc = evaluate_success_rate(original, propagated)
+        assert abs(score - score_suc) < 1e-6
 
     def test_evaluate_success_rate_nulls(self):
         # Test case: null detections
