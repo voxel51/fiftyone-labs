@@ -15,9 +15,7 @@ import fiftyone.zoo as foz
 from fiftyone.core.expressions import ViewField as F
 
 
-@pytest.fixture(params=[
-    "dance-twirl", "motocross-jump", "scooter-black"
-])
+@pytest.fixture(params=["dance-twirl", "motocross-jump", "scooter-black"])
 def image_dataset_view(request):
     sequence = request.param
     dataset = foz.load_zoo_dataset(
@@ -28,9 +26,7 @@ def image_dataset_view(request):
     dataset_view = dataset.match_tags([sequence]).sort_by("frame_number")
 
     if "labels_test" in dataset_view._dataset.get_field_schema():
-        dataset_view._dataset.delete_sample_field(
-            "labels_test", error_level=2
-        )
+        dataset_view._dataset.delete_sample_field("labels_test", error_level=2)
     dataset_view._dataset.add_sample_field(
         "labels_test",
         fo.EmbeddedDocumentField,

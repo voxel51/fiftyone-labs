@@ -1,7 +1,5 @@
 import pytest
 import numpy as np
-import cv2
-from PIL import Image
 from pathlib import Path
 import sys
 
@@ -16,36 +14,6 @@ if str(PLUGINS_DIR) not in sys.path:
     sys.path.insert(0, str(PLUGINS_DIR))
 
 from label_propagation.suc_utils import evaluate_matched  # type: ignore
-
-
-def _segmentation_to_detections(
-    segmentation: fo.Segmentation,
-) -> fo.Detections:
-    """Convert an indexed-PNG fo.Segmentation to fo.Detections.
-
-    MOSE annotation masks are 8-bit indexed PNGs where pixel value = object
-    instance ID (0 = background). This mirrors what the DAVIS loader produces
-    natively, so the propagation operator sees the same input format.
-    """
-    mask = np.array(Image.open(segmentation.mask_path))  # type: ignore[arg-type]
-    h, w = mask.shape
-
-    detections = []
-    for obj_id in np.unique(mask):
-        if obj_id == 0:
-            continue  # background
-        binary = (mask == obj_id).astype(np.uint8)
-        x, y, bw, bh = cv2.boundingRect(binary)
-        if bw == 0 or bh == 0:
-            continue
-        detections.append(
-            fo.Detection(
-                label=str(obj_id),
-                bounding_box=[x / w, y / h, bw / w, bh / h],
-                mask=binary[y : y + bh, x : x + bw],
-            )
-        )
-    return fo.Detections(detections=detections)
 
 
 @pytest.fixture(params=[0, 2, 4, 6, 8])
@@ -81,17 +49,16 @@ def partially_labeled_image_dataset_view(image_dataset_view):
         seq_slice = image_dataset_view.match(F("sequence_id") == seq).sort_by(
             "frame_number"
         )
+        n = len(seq_slice)
         seq_slice.set_values(
             "new_frame_number",
-            [new_frame_number + ii for ii in range(len(seq_slice))],
+            [new_frame_number + ii for ii in range(n)],
         )
-        new_frame_number += len(seq_slice)
+        new_frame_number += n
 
         # label only the first frame
         exemplar_sample = seq_slice.first()
-        exemplar_sample["labels_test"] = _segmentation_to_detections(
-            exemplar_sample["ground_truth"]
-        )
+        exemplar_sample["labels_test"] = exemplar_sample["ground_truth"]
         exemplar_sample.save()
 
     return image_dataset_view
@@ -117,7 +84,6 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
 
     pred_detections = view.values("labels_test_propagated")
     gt_detections = view.values("ground_truth")
-    gt_detections = [_segmentation_to_detections(gt) for gt in gt_detections]
 
     scores = []
     for pred, gt in zip(pred_detections, gt_detections):
