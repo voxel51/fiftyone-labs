@@ -95,7 +95,7 @@ class LabelPropagationPanel(foo.Panel):
             ctx.panel.state.sort_field = ctx.params["sort_field"]
 
         sort_field = getattr(ctx.panel.state, "sort_field", None)
-        if sort_field:
+        if sort_field and ctx.view.has_field(sort_field):
             ctx.ops.set_view(ctx.view.sort_by(sort_field))
 
     def _handle_temporal_segments_field_change(self, ctx: Any) -> None:
@@ -480,26 +480,30 @@ class LabelPropagationPanel(foo.Panel):
             on_click=self._run_temporal_segmentation,
             variant="contained",
         )
-        panel.md(
-            "#### Exemplar Score Assignment (Optional)",
-            name="panel_exemplar_scoring_header",
-        )
-        exemplar_scoring_method_dropdown = types.DropdownView()
-        for choice in SUPPORTED_EXEMPLAR_SCORING_METHODS:
-            exemplar_scoring_method_dropdown.add_choice(choice, label=choice)
-        panel.str(
-            "exemplar_scoring_method",
-            label="Exemplar Scoring Method",
-            view=exemplar_scoring_method_dropdown,
-            default=SUPPORTED_EXEMPLAR_SCORING_METHODS[0],
-            on_change=self._handle_exemplar_scoring_method_change,
-        )
-        panel.btn(
-            "run_select_exemplars",
-            label="Run Exemplar Score Assignment",
-            on_click=self._run_select_exemplars,
-            variant="contained",
-        )
+
+        if ctx.view.media_type != fom.VIDEO:
+            panel.md(
+                "#### Exemplar Score Assignment (Optional)",
+                name="panel_exemplar_scoring_header",
+            )
+            exemplar_scoring_method_dropdown = types.DropdownView()
+            for choice in SUPPORTED_EXEMPLAR_SCORING_METHODS:
+                exemplar_scoring_method_dropdown.add_choice(
+                    choice, label=choice
+                )
+            panel.str(
+                "exemplar_scoring_method",
+                label="Exemplar Scoring Method",
+                view=exemplar_scoring_method_dropdown,
+                default=SUPPORTED_EXEMPLAR_SCORING_METHODS[0],
+                on_change=self._handle_exemplar_scoring_method_change,
+            )
+            panel.btn(
+                "run_select_exemplars",
+                label="Run Exemplar Score Assignment",
+                on_click=self._run_select_exemplars,
+                variant="contained",
+            )
 
         panel.md(
             "#### Open Propagation View", name="panel_propagation_view_header"
@@ -585,7 +589,7 @@ class LabelPropagationPanel(foo.Panel):
         panel.int(
             "max_batch_size",
             label="Max Batch Size",
-            description="Maximum number of samples to process in one pass. Reduce if you run out of memory.",
+            description="Maximum number of frames to process in one pass. Reduce if you run out of memory.",
             min=1,
             default=getattr(ctx.panel.state, "max_batch_size", 32),
             on_change=self._handle_max_batch_size_change,

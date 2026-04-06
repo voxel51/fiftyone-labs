@@ -125,8 +125,7 @@ def _frame_gen_from_video(
 ) -> Iterator[np.ndarray]:
     cap = cv2.VideoCapture(get_local_path(sample))
     if not cap.isOpened():
-        logger.warning(f"Failed to open video: {get_local_path(sample)}")
-        return
+        raise ValueError(f"Failed to open video: {get_local_path(sample)}")
     try:
         frame_count = 0
         while cap.isOpened():
