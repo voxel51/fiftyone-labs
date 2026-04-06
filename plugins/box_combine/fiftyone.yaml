@@ -2,7 +2,7 @@ name: "@51labs/box_combine"
 type: plugin
 author: Brent Griffin
 version: 1.0.0
-url: https://github.com/griffbr/box-combine
+url: https://github.com/voxel51/fiftyone-labs/tree/main/plugins/box_combine
 license: Apache 2.0
 description: Combine Bounding Boxes
 fiftyone:
