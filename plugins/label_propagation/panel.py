@@ -480,26 +480,30 @@ class LabelPropagationPanel(foo.Panel):
             on_click=self._run_temporal_segmentation,
             variant="contained",
         )
-        panel.md(
-            "#### Exemplar Score Assignment (Optional)",
-            name="panel_exemplar_scoring_header",
-        )
-        exemplar_scoring_method_dropdown = types.DropdownView()
-        for choice in SUPPORTED_EXEMPLAR_SCORING_METHODS:
-            exemplar_scoring_method_dropdown.add_choice(choice, label=choice)
-        panel.str(
-            "exemplar_scoring_method",
-            label="Exemplar Scoring Method",
-            view=exemplar_scoring_method_dropdown,
-            default=SUPPORTED_EXEMPLAR_SCORING_METHODS[0],
-            on_change=self._handle_exemplar_scoring_method_change,
-        )
-        panel.btn(
-            "run_select_exemplars",
-            label="Run Exemplar Score Assignment",
-            on_click=self._run_select_exemplars,
-            variant="contained",
-        )
+
+        if ctx.view.media_type != fom.VIDEO:
+            panel.md(
+                "#### Exemplar Score Assignment (Optional)",
+                name="panel_exemplar_scoring_header",
+            )
+            exemplar_scoring_method_dropdown = types.DropdownView()
+            for choice in SUPPORTED_EXEMPLAR_SCORING_METHODS:
+                exemplar_scoring_method_dropdown.add_choice(
+                    choice, label=choice
+                )
+            panel.str(
+                "exemplar_scoring_method",
+                label="Exemplar Scoring Method",
+                view=exemplar_scoring_method_dropdown,
+                default=SUPPORTED_EXEMPLAR_SCORING_METHODS[0],
+                on_change=self._handle_exemplar_scoring_method_change,
+            )
+            panel.btn(
+                "run_select_exemplars",
+                label="Run Exemplar Score Assignment",
+                on_click=self._run_select_exemplars,
+                variant="contained",
+            )
 
         panel.md(
             "#### Open Propagation View", name="panel_propagation_view_header"

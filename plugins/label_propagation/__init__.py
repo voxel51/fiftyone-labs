@@ -123,12 +123,24 @@ class TemporalSegmentation(foo.Operator):
                     fo.FloatField,
                 )
 
-        extract_temporal_segments(
-            view=ctx.target_view(),
-            method=temporal_segmentation_method,
-            temporal_segments_field=temporal_segments_field,
-            sort_field=sort_field,
-        )
+        try:
+            extract_temporal_segments(
+                view=ctx.target_view(),
+                method=temporal_segmentation_method,
+                temporal_segments_field=temporal_segments_field,
+                sort_field=sort_field,
+            )
+        except (RuntimeError, ValueError) as e:
+            error_msg = str(e)
+            logger.error(error_msg)
+            ctx.ops.notify(
+                error_msg,
+                variant="error",
+            )
+            return {
+                "message": error_msg,
+                "samples_processed": 0,
+            }
 
         return {
             "message": f"Temporal segments stored in '{temporal_segments_field}'",
@@ -272,6 +284,12 @@ class PropagateLabels(foo.Operator):
             )
             return False
 
+        max_batch_size = ctx.params.get("max_batch_size", 32)
+        if ctx.dataset.media_type != "video" and max_batch_size < 2:
+            logger.warning(
+                f"Max batch size '{max_batch_size}' has to be >= 2 for propagation to work."
+            )
+
         return True
 
     def resolve_input(self, ctx) -> types.Property:
@@ -325,7 +343,7 @@ class PropagateLabels(foo.Operator):
             "max_batch_size",
             label="Max Batch Size",
             description="Maximum number of samples to process in one pass. Reduce if you run out of memory.",
-            min=1,
+            min=2,
             default=32,
             required=False,
         )
