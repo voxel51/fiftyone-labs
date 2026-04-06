@@ -35,7 +35,7 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/labs_panel">@51labs/labs_panel</a></b></td>
-        <td>A panel listing all available Labs plugins</td>
+        <td>A panel listing all the available FiftyOne Labs features</td>
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/video_apply_model">@51labs/video_apply_model</a></b></td>
@@ -46,8 +46,8 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
         <td>Interactive few-shot learning with multiple model types</td>
     </tr>
     <tr>
-        <td><b><a href="https://github.com/griffbr/box-combine">@51labs/box-combine</a></b></td>
-        <td>Weighted Box Fusion for detections</td>
+        <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/box_combine">@51labs/box_combine</a></b></td>
+        <td>Weighted Boxes Fusion for detections</td>
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/zero-shot-coreset-selection">@51labs/zero-shot-coreset-selection</a></b></td>
@@ -72,7 +72,7 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
     </tr>
 </table>
 
-## Using Labs
+## Using FiftyOne Labs
 
 ### Install FiftyOne
 
@@ -83,35 +83,35 @@ If you haven't already, install
 pip install fiftyone
 ```
 
-### Installing a Labs Feature
+### Installing specific FiftyOne Labs Feature
 
 To install all the features in this repository, you can run:
 
 ```shell
-fiftyone plugins download https://github.com/voxel51/fiftyone-labs
+fiftyone labs install --all
 ```
 
-You can also install a specific plugin using the `--plugin-names` flag:
+You can also install specific FiftyOne Labs features using:
 
 ```shell
-fiftyone plugins download \
-    https://github.com/voxel51/fiftyone-labs \
-    --plugin-names <name1> <name2> <name3>
+fiftyone labs install <name1> <name2> ...
 ```
 
 ### Installing via Labs Panel
 
-[Labs Panel](plugins/labs_panel/README.md) offers a convenient interface to install Labs features in the FiftyOne App. To get started, install the Labs Panel:
+[Labs Panel](plugins/labs_panel/README.md) offers a convenient interface to install FiftyOne Labs features in the FiftyOne App. To get started, install the Labs Panel:
 
 ```shell
-fiftyone plugins download \
-    https://github.com/voxel51/fiftyone-labs \
-    --plugin-names @51labs/labs_panel
+fiftyone labs install @51labs/labs_panel
 ```
+
+### FiftyOne Labs CLI
+
+For more command line tools for FiftyOne Labs, check out the [CLI documentation](https://docs.voxel51.com/cli/index.html#fiftyone-labs).
 
 ## Feedback
 
-For questions, comments, and suggestions, head to the `fiftyone-labs` [Discord Channel](https://discord.com/channels/1266527359511564372/1466492755214733625)
+For questions, comments, and suggestions, head to the `fiftyone-labs` [Discord Channel](https://discord.com/channels/1266527359511564372/1466492755214733625).
 
 ## Contributing
 
