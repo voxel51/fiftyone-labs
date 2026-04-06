@@ -12,10 +12,6 @@ Based on [ZFTurbo's Weighted-Boxes-Fusion](https://github.com/ZFTurbo/Weighted-B
 fiftyone labs install @51labs/box_combine
 ```
 
-Refer to the
-[main README](https://github.com/voxel51/fiftyone-plugins) for more
-information about managing downloaded plugins and developing plugins locally.
-
 ## Usage
 
 1. Launch the App:
