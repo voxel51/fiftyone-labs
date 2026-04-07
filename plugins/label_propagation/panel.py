@@ -115,7 +115,7 @@ class LabelPropagationPanel(foo.Panel):
         """
         - Persist the selection method to ctx.panel.state
         """
-        if "selection_method" in ctx.params:
+        if "temporal_segmentation_method" in ctx.params:
             ctx.panel.state.temporal_segmentation_method = ctx.params[
                 "temporal_segmentation_method"
             ]
@@ -253,7 +253,16 @@ class LabelPropagationPanel(foo.Panel):
                 "output_annotation_field"
             ]
 
+    def _set_config_values(self, ctx: Any) -> None:
+        """
+        Persist configuration values and apply any dependent updates.
+        """
+        self._handle_sort_field_change(ctx)
+        self._handle_temporal_segments_field_change(ctx)
+        ctx.ops.notify("Configuration values set", variant="success")
+
     def _run_temporal_segmentation(self, ctx: Any) -> None:
+        self._handle_temporal_segmentation_method_change(ctx)
         op_ctx = {
             "dataset": ctx.dataset,
             "view": ctx.view,
@@ -286,6 +295,7 @@ class LabelPropagationPanel(foo.Panel):
         self._handle_temporal_segments_field_change(ctx)
 
     def _run_select_exemplars(self, ctx: Any) -> None:
+        self._handle_exemplar_scoring_method_change(ctx)
         op_ctx = {
             "dataset": ctx.dataset,
             "view": ctx.view,
@@ -376,6 +386,11 @@ class LabelPropagationPanel(foo.Panel):
 
     def _run_propagate_labels(self, ctx: Any) -> None:
         """Execute PropagateLabels operator."""
+        self._handle_input_annotation_field_change(ctx)
+        self._handle_output_annotation_field_change(ctx)
+        self._handle_propagation_method_change(ctx)
+        self._handle_max_batch_size_change(ctx)
+        self._handle_use_delegated_operation_change(ctx)
         use_delegated = getattr(
             ctx.panel.state, "use_delegated_operation", False
         )
@@ -437,14 +452,18 @@ class LabelPropagationPanel(foo.Panel):
             if field_choices
             else None,
             description="Field to sort samples by",
-            on_change=self._handle_sort_field_change,
         )
         panel.str(
             "temporal_segments_field",
             label="Temporal Segments Field",
             default=getattr(ctx.panel.state, "temporal_segments_field", None),
             description="Field storing temporal segment classifications",
-            on_change=self._handle_temporal_segments_field_change,
+        )
+        panel.btn(
+            "set_config_values",
+            label="Set Config Values",
+            on_click=self._set_config_values,
+            variant="contained",
         )
 
         # Temporal Segmentation + Exemplar section
@@ -472,7 +491,6 @@ class LabelPropagationPanel(foo.Panel):
             label="Segmentation Method",
             view=temporal_segmentation_method_dropdown,
             default=SUPPORTED_TEMPORAL_SEGMENTATION_METHODS[0],
-            on_change=self._handle_temporal_segmentation_method_change,
         )
         panel.btn(
             "run_temporal_segmentation",
@@ -496,7 +514,6 @@ class LabelPropagationPanel(foo.Panel):
                 label="Exemplar Scoring Method",
                 view=exemplar_scoring_method_dropdown,
                 default=SUPPORTED_EXEMPLAR_SCORING_METHODS[0],
-                on_change=self._handle_exemplar_scoring_method_change,
             )
             panel.btn(
                 "run_select_exemplars",
@@ -527,7 +544,12 @@ class LabelPropagationPanel(foo.Panel):
                     label="Selected Segment",
                     view=segment_dropdown,
                     default=None,
-                    on_change=self._handle_segment_selection,
+                )
+                panel.btn(
+                    "open_propagation_view",
+                    label="Open",
+                    on_click=self._handle_segment_selection,
+                    variant="contained",
                 )
             else:
                 panel.md(
@@ -551,7 +573,6 @@ class LabelPropagationPanel(foo.Panel):
             else None,
             required=True,
             description="Field containing annotations to propagate from",
-            on_change=self._handle_input_annotation_field_change,
         )
         input_annotation_field = getattr(
             ctx.panel.state, "input_annotation_field", None
@@ -574,7 +595,6 @@ class LabelPropagationPanel(foo.Panel):
             view=propagation_method_dropdown,
             default=SUPPORTED_PROPAGATION_METHODS[0],
             description="Propagation method",
-            on_change=self._handle_propagation_method_change,
         )
 
         panel.str(
@@ -583,7 +603,6 @@ class LabelPropagationPanel(foo.Panel):
             default=default_output_annotation_field,
             description=f"Field to store propagated annotations (default: {input_annotation_field}_propagated)",
             required=False,
-            on_change=self._handle_output_annotation_field_change,
         )
 
         panel.int(
@@ -592,7 +611,6 @@ class LabelPropagationPanel(foo.Panel):
             description="Maximum number of frames to process in one pass. Reduce if you run out of memory.",
             min=1,
             default=getattr(ctx.panel.state, "max_batch_size", 32),
-            on_change=self._handle_max_batch_size_change,
         )
 
         panel.bool(
@@ -600,7 +618,6 @@ class LabelPropagationPanel(foo.Panel):
             label="Use delegated operation",
             default=getattr(ctx.panel.state, "use_delegated_operation", False),
             description="Queue propagation as a delegated operation (runs in the background)",
-            on_change=self._handle_use_delegated_operation_change,
         )
         panel.btn(
             "run_propagate_labels",
