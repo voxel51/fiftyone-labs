@@ -86,7 +86,7 @@ def video_dataset_view():
     )
     SELECT_SEQUENCES = ["bike-packing", "bmx-trees"]
     dataset_view = dataset.match_tags(SELECT_SEQUENCES)
-    dataset_view.match_frames(F("frame_number") <= 6).keep_frames()
+    dataset_view = dataset_view.match_frames(F("frame_number") <= 6)
     return dataset_view
 
 
@@ -101,22 +101,12 @@ def partially_labeled_video_dataset_view(video_dataset_view):
             fo.EmbeddedDocumentField,
             embedded_doc_type=fo.Detections,
         )
-    (
-        video_dataset_view.match_frames(F("frame_number") > 1)
-        .set_field("frames.labels_test", fo.Detections(detections=[]))
-        .save()
-    )
-    (
-        video_dataset_view.match_frames(F("frame_number") == 1)
-        .set_field("frames.labels_test", F("ground_truth"))
-        .save()
-    )
-    # for sample in video_dataset_view.iter_samples(autosave=True):
-    #     for frame_number, frame in sample.frames.items():
-    #         if frame_number == 1:
-    #             frame["labels_test"] = frame["ground_truth"]
-    #         else:
-    #             frame["labels_test"] = fo.Detections(detections=[])
+    for sample in video_dataset_view.iter_samples(autosave=True):
+        for frame_number, frame in sample.frames.items():
+            if frame_number == 1:
+                frame["labels_test"] = frame["ground_truth"]
+            else:
+                frame["labels_test"] = fo.Detections(detections=[])
 
     return video_dataset_view
 
@@ -298,15 +288,9 @@ def test_propagate_labels_video(partially_labeled_video_dataset_view):
             "max_batch_size": 4,
         },
     }
-    print("\n---")
-    print(partially_labeled_video_dataset_view.first().frames[1]["ground_truth"])
-    print("---\n")
     result = foo.execute_operator(
         "@51labs/label_propagation/propagate_labels", ctx
     )
-    print("\n---")
-    print(partially_labeled_video_dataset_view.first().frames[1]["ground_truth"])
-    print("---\n")
     print(result.result["message"])  # type: ignore[index]
 
     detection_area = (

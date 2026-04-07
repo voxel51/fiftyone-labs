@@ -1,6 +1,7 @@
 import numpy as np
 import logging
 import os
+import uuid
 from typing import Generator, Tuple, Union, Optional, Any, List
 from copy import deepcopy
 
@@ -86,6 +87,12 @@ def delete_field_if_exists(dataset: fo.Dataset, field_name: str):
         if field_name in dataset.get_field_schema():
             dataset.delete_sample_field(field_name)
 
+    # Reload the dataset singleton (if any)
+    # needed because the Teams executor runs operators with no_singleton_cache=True
+    singleton = fod.Dataset._instances.get(dataset.name)  # type: ignore[attr-defined]
+    if singleton is not None and singleton is not dataset:
+        singleton.reload()
+
 
 def iter_batches(
     view: fo.DatasetView,
@@ -102,9 +109,9 @@ def iter_batches(
     """
     if media_mode != "video":
         sample_ids = view.values("id")
-        n = len(sample_ids)
+        n = len(sample_ids)  # type: ignore[arg-type]
         for start in range(0, n, max_batch_size - 1):
-            chunk_ids = sample_ids[start : start + max_batch_size]
+            chunk_ids = sample_ids[start : start + max_batch_size] # type: ignore[index]
             yield view.select(chunk_ids), (chunk_ids[0] if start > 0 else None)
 
     else:
@@ -168,20 +175,19 @@ def propagate_annotations_sam2(
     run_view.set_values(
         temp_input_annotation_field, run_view.values(input_annotation_field)
     )
-
     try:
         for chunk_idx, (chunk_view, overlap) in enumerate(
-            iter_batches(run_view, max_batch_size, media_mode)
+            iter_batches(run_view, max_batch_size, media_mode)  # type: ignore[arg-type]
         ):
             if overlap is not None:
                 if media_mode != "video":
                     overlap_frame = view._dataset[overlap]
                 else:
                     sample_id, frame_number = overlap
-                    overlap_frame = view._dataset[sample_id].frames[
+                    overlap_frame = view._dataset[sample_id].frames[  # type: ignore[index]
                         frame_number
                     ]
-                overlap_frame[
+                overlap_frame[  # type: ignore[index]
                     get_frame_field_name(
                         temp_input_annotation_field, media_mode
                     )
@@ -189,14 +195,35 @@ def propagate_annotations_sam2(
                 overlap_frame.save()
 
             logger.info(f"Processing batch {chunk_idx + 1}")
-            chunk_view.apply_model(
-                model,
-                label_field=output_field,
-                prompt_field=temp_input_annotation_field,
-                batch_size=len(chunk_view),
-                progress=progress,
-                skip_failures=False,
-            )
+            # print("\n--- before applying model")
+            # if (run_view.first().frames[1]["ground_truth"] is None) or (run_view.first().frames[1]["labels_test"] is None):
+            #     breakpoint()
+            # print("---\n")
+
+            # Note: `apply_model()` saves SampleViews and can drop omitted/filtered
+            # content when called on frame-filtered views. To preserve all
+            # existing fields, run inference on an isolated clone of the chunk
+            # and only copy the output field back to the source chunk view.
+            chunk_ds = chunk_view.clone(name=f"_chunk_{os.urandom(12).hex()}")
+            try:
+                chunk_ds.apply_model(
+                    model,
+                    label_field=output_field,
+                    prompt_field=temp_input_annotation_field,
+                    batch_size=len(chunk_ds),
+                    progress=progress,
+                    skip_failures=False,
+                )
+                chunk_view.set_values(
+                    output_annotation_field,
+                    chunk_ds.values(output_annotation_field),
+                )
+            finally:
+                fo.delete_dataset(chunk_ds.name)
+            # print("\n--- after applying model")
+            # if (run_view.first().frames[1]["ground_truth"] is None) or (run_view.first().frames[1]["labels_test"] is None):
+            #     breakpoint()
+            # print("---\n")
     finally:
         delete_field_if_exists(
             view._dataset,
