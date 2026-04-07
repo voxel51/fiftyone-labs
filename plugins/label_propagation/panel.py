@@ -252,6 +252,12 @@ class LabelPropagationPanel(foo.Panel):
             ctx.panel.state.output_annotation_field = ctx.params[
                 "output_annotation_field"
             ]
+        if (ctx.panel.state.output_annotation_field is None) and (
+            ctx.panel.state.input_annotation_field is not None
+        ):
+            ctx.panel.state.output_annotation_field = (
+                ctx.panel.state.input_annotation_field + "_propagated"
+            )
 
     def _set_config_values(self, ctx: Any) -> None:
         """
@@ -447,7 +453,7 @@ class LabelPropagationPanel(foo.Panel):
         panel.str(
             "sort_field",
             label="Sort Field",
-            default=getattr(ctx.panel.state, "sort_field", None),
+            default=None,
             view=types.AutocompleteView(choices=field_choices)
             if field_choices
             else None,
@@ -456,7 +462,7 @@ class LabelPropagationPanel(foo.Panel):
         panel.str(
             "temporal_segments_field",
             label="Temporal Segments Field",
-            default=getattr(ctx.panel.state, "temporal_segments_field", None),
+            default=None,
             description="Field storing temporal segment classifications",
         )
         panel.btn(
@@ -567,24 +573,13 @@ class LabelPropagationPanel(foo.Panel):
         panel.str(
             "input_annotation_field",
             label="Input Annotation Field",
-            default=getattr(ctx.panel.state, "input_annotation_field", None),
+            default=None,
             view=types.AutocompleteView(choices=field_choices)
             if field_choices
             else None,
             required=True,
             description="Field containing annotations to propagate from",
         )
-        input_annotation_field = getattr(
-            ctx.panel.state, "input_annotation_field", None
-        )
-        if input_annotation_field:
-            default_output_annotation_field = (
-                input_annotation_field + "_propagated"
-            )
-        else:
-            default_output_annotation_field = getattr(
-                ctx.panel.state, "output_annotation_field", None
-            )
 
         propagation_method_dropdown = types.DropdownView()
         for choice in SUPPORTED_PROPAGATION_METHODS:
@@ -600,8 +595,8 @@ class LabelPropagationPanel(foo.Panel):
         panel.str(
             "output_annotation_field",
             label="Output Annotation Field",
-            default=default_output_annotation_field,
-            description=f"Field to store propagated annotations (default: {input_annotation_field}_propagated)",
+            default=None,
+            description="Field to store propagated annotations (default: Input Annotation Field + `_propagated`)",
             required=False,
         )
 
@@ -610,13 +605,13 @@ class LabelPropagationPanel(foo.Panel):
             label="Max Batch Size",
             description="Maximum number of frames to process in one pass. Reduce if you run out of memory.",
             min=1,
-            default=getattr(ctx.panel.state, "max_batch_size", 32),
+            default=32,
         )
 
         panel.bool(
             "use_delegated_operation",
             label="Use delegated operation",
-            default=getattr(ctx.panel.state, "use_delegated_operation", False),
+            default=False,
             description="Queue propagation as a delegated operation (runs in the background)",
         )
         panel.btn(
