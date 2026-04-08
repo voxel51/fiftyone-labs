@@ -45,7 +45,6 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/few_shot_learning">@51labs/few_shot_learning</a></b></td>
         <td>Interactive few-shot learning with multiple model types</td>
     </tr>
-    </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/label_propagation">@51labs/label_propagation</a></b></td>
         <td>Propagating Labels across frames of a video</td>
