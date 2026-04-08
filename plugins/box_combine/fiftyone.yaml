@@ -11,6 +11,5 @@ operators:
   - box_combine
 tags:
   - 51labs
-  - machine-learning
+  - ml
   - detection
-  - post-processing

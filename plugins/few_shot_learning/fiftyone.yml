@@ -9,7 +9,5 @@ panels:
   - few_shot_learning
 tags:
   - 51labs
-  - machine-learning
+  - ml
   - classification
-  - training
-  - interactive

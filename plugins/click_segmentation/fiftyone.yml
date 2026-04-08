@@ -12,6 +12,5 @@ operators:
 js_bundle: dist/index.umd.js
 tags:
   - 51labs
-  - machine-learning
+  - ml
   - segmentation
-  - interactive
