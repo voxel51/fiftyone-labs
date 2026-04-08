@@ -9,3 +9,8 @@ fiftyone:
   version: "*"
 operators:
   - box_combine
+tags:
+  - 51labs
+  - machine-learning
+  - detection
+  - post-processing

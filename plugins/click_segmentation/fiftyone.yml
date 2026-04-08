@@ -10,3 +10,8 @@ operators:
   - save_keypoints
   - segment_with_prompts
 js_bundle: dist/index.umd.js
+tags:
+  - 51labs
+  - machine-learning
+  - segmentation
+  - interactive

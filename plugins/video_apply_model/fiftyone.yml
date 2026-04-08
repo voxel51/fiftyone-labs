@@ -7,3 +7,9 @@ url: https://github.com/voxel51/labs/tree/main/plugins/video_apply_model
 license: Apache 2.0
 operators:
   - video_apply_model
+tags:
+  - 51labs
+  - machine-learning
+  - video
+  - inference
+  - dataloader

@@ -7,3 +7,7 @@ url: https://github.com/voxel51/labs/tree/main/plugins/labs_panel
 license: Apache 2.0
 panels:
   - labs_panel
+tags:
+  - 51labs
+  - machine-learning
+  - utils
