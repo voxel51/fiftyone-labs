@@ -11,6 +11,5 @@ operators:
   - segment_with_prompts
 js_bundle: dist/index.umd.js
 tags:
-  - 51labs
   - ml
   - segmentation
