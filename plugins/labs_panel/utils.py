@@ -61,7 +61,7 @@ def list_labs_features(info=False):
 
                 for row in table_elem.find_all("tr"):
                     cols = row.find_all(["td"])
-                    if len(cols) != 2:
+                    if len(cols) != 3:
                         continue
 
                     try:
