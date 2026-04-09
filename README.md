@@ -31,30 +31,37 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
 <table>
     <tr>
         <th>Name</th>
+        <th>Tags</th>
         <th>Description</th>
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/labs_panel">@51labs/labs_panel</a></b></td>
+        <td>ml · utils</td>
         <td>A panel listing all the available FiftyOne Labs features</td>
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/video_apply_model">@51labs/video_apply_model</a></b></td>
+        <td>ml · video</td>
         <td>Apply image model to video dataset using torch dataloader</td>
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/few_shot_learning">@51labs/few_shot_learning</a></b></td>
+        <td>ml · classification</td>
         <td>Interactive few-shot learning with multiple model types</td>
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/box_combine">@51labs/box_combine</a></b></td>
+        <td>ml · detection</td>
         <td>Weighted Boxes Fusion for detections</td>
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/zero-shot-coreset-selection">@51labs/zero-shot-coreset-selection</a></b></td>
+        <td>ml</td>
         <td>Zero-shot coreset selection (ZCore) for unlabeled image data</td>
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/click_segmentation">@51labs/click_segmentation</a></b></td>
+        <td>ml · segmentation</td>
         <td>Interactive image segmentation via prompts</td>
     </tr>
 </table>

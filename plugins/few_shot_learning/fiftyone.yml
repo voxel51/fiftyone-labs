@@ -8,6 +8,5 @@ license: Apache 2.0
 panels:
   - few_shot_learning
 tags:
-  - 51labs
   - ml
   - classification

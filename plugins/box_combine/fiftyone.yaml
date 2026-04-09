@@ -10,6 +10,5 @@ fiftyone:
 operators:
   - box_combine
 tags:
-  - 51labs
   - ml
   - detection

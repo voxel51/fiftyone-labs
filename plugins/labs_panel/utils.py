@@ -67,7 +67,7 @@ def list_labs_features(info=False):
                     try:
                         name = cols[0].text.strip()
                         url = cols[0].find("a")["href"]
-                        description = cols[1].text.strip()
+                        description = cols[2].text.strip()
                         plugins.append(
                             dict(
                                 name=name,
