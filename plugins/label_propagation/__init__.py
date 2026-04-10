@@ -284,10 +284,10 @@ class PropagateLabels(foo.Operator):
             )
             return False
 
-        max_batch_size = ctx.params.get("max_batch_size", 32)
-        if ctx.dataset.media_type != "video" and max_batch_size < 2:
+        batch_size = ctx.params.get("batch_size", 32)
+        if ctx.dataset.media_type != "video" and batch_size < 2:
             logger.warning(
-                f"Max batch size '{max_batch_size}' has to be >= 2 for propagation to work."
+                f"Batch size '{batch_size}' has to be >= 2 for propagation to work."
             )
 
         return True
@@ -340,10 +340,10 @@ class PropagateLabels(foo.Operator):
         )
 
         inputs.int(
-            "max_batch_size",
-            label="Max Batch Size",
-            description="Maximum number of frames to process in one pass. Reduce if you run out of memory.",
-            min=2,
+            "batch_size",
+            label="Batch Size",
+            description="Maximum number of media samples to process in one pass. Reduce if you run out of memory.",
+            min=1,
             default=32,
             required=False,
         )
@@ -369,7 +369,7 @@ class PropagateLabels(foo.Operator):
             output_annotation_field = f"{input_annotation_field}_propagated"
         propagation_method = ctx.params.get("propagation_method")
         sort_field = ctx.params.get("sort_field", None)
-        max_batch_size = ctx.params.get("max_batch_size", 32)
+        batch_size = ctx.params.get("batch_size", 32)
 
         try:
             if propagation_method == "sam2":
@@ -378,7 +378,7 @@ class PropagateLabels(foo.Operator):
                     input_annotation_field=input_annotation_field,
                     output_annotation_field=output_annotation_field,
                     sort_field=sort_field,
-                    max_batch_size=max_batch_size,
+                    batch_size=batch_size,
                     progress=True,
                 )
             else:

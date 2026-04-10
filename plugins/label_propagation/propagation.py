@@ -94,7 +94,7 @@ def delete_field_if_exists(dataset: fo.Dataset, field_name: str):
 
 def iter_batches(
     view: fo.DatasetView,
-    max_batch_size: int,
+    batch_size: int,
     media_mode: str,
 ) -> Generator[tuple[fo.DatasetView, Optional[Any]], None, None]:
     """Yields (chunk_view, overlap) for sequential batched processing with 1-element overlap.
@@ -108,16 +108,16 @@ def iter_batches(
     if media_mode != "video":
         sample_ids = view.values("id")
         n = len(sample_ids)  # type: ignore[arg-type]
-        for start in range(0, n, max_batch_size - 1):
-            chunk_ids = sample_ids[start : start + max_batch_size]  # type: ignore[index]
+        for start in range(0, n, batch_size - 1):
+            chunk_ids = sample_ids[start : start + batch_size]  # type: ignore[index]
             yield view.select(chunk_ids), (chunk_ids[0] if start > 0 else None)
 
     else:
         for sample in view.iter_samples():
             frame_numbers = sorted(sample.frames.keys())
             n = len(frame_numbers)
-            for start in range(0, n, max_batch_size - 1):
-                chunk_fns = frame_numbers[start : start + max_batch_size]
+            for start in range(0, n, batch_size - 1):
+                chunk_fns = frame_numbers[start : start + batch_size]
                 chunk_frame_ids = [sample.frames[fn].id for fn in chunk_fns]
                 chunk_view = view.select([sample.id]).select_frames(
                     chunk_frame_ids
@@ -132,7 +132,7 @@ def propagate_annotations_sam2(
     input_annotation_field: str,
     output_annotation_field: str,
     sort_field: Optional[str] = None,
-    max_batch_size: int = 32,
+    batch_size: int = 32,
     progress: Optional[bool] = True,
 ) -> dict[str, float]:
     """
@@ -154,71 +154,65 @@ def propagate_annotations_sam2(
     output_field = get_frame_field_name(output_annotation_field, media_mode)
     # Explicitly register the output field in the schema (needed for Teams)
     add_detection_field_if_not_exists(view._dataset, output_field)
-    # Temp field: holds input_annotation_field values for all frames, and updates
-    # from previous chunks' propagated outputs at overlapping frames
-    # (This is to avoid overwriting the original input annotations)
-    temp_input_annotation_field = (
-        f"{input_annotation_field}_{os.urandom(12).hex()}"
-    )
-    add_detection_field_if_not_exists(
-        view._dataset,
-        get_frame_field_name(temp_input_annotation_field, media_mode),
-    )
 
     run_view = (
         view.sort_by(sort_field)
         if (sort_field and view.has_field(sort_field))
         else view
     )
+
+    if media_mode == "video":
+        run_view.apply_model(
+            model,
+            # label_field is applied directly to the frame-level field
+            label_field=output_field,
+            prompt_field=input_annotation_field,
+            batch_size=batch_size,
+            progress=progress,
+            skip_failures=False,
+        )
+        return {}
+
+    # For images, we support batching by chunking the view into batch_size images.
+    # We create a temp field to hold the input_annotation_field values for all frames
+    # and updates from previous chunks' propagated outputs at overlapping frames.
+    # This is to avoid overwriting the original input annotations.
+    temp_input_annotation_field = (
+        f"{input_annotation_field}_{os.urandom(12).hex()}"
+    )
+    add_detection_field_if_not_exists(
+        view._dataset,
+        temp_input_annotation_field,
+    )
     run_view.set_values(
         temp_input_annotation_field, run_view.values(input_annotation_field)
     )
+
     try:
         for chunk_idx, (chunk_view, overlap) in enumerate(
-            iter_batches(run_view, max_batch_size, media_mode)  # type: ignore[arg-type]
+            iter_batches(run_view, batch_size, media_mode)  # type: ignore[arg-type]
         ):
             if overlap is not None:
-                if media_mode != "video":
-                    overlap_frame = view._dataset[overlap]
-                else:
-                    sample_id, frame_number = overlap
-                    overlap_frame = view._dataset[sample_id].frames[  # type: ignore[index]
-                        frame_number
-                    ]
+                overlap_frame = view._dataset[overlap]
                 overlap_frame[  # type: ignore[index]
-                    get_frame_field_name(
-                        temp_input_annotation_field, media_mode
-                    )
+                    temp_input_annotation_field
                 ] = overlap_frame[output_field]
                 overlap_frame.save()
 
             logger.info(f"Processing batch {chunk_idx + 1}")
 
-            # Note: `apply_model()` saves SampleViews and can drop omitted/filtered
-            # content when called on frame-filtered views. To preserve all
-            # existing fields, run inference on an isolated clone of the chunk
-            # and only copy the output field back to the source chunk view.
-            chunk_ds = chunk_view.clone(name=f"_chunk_{os.urandom(12).hex()}")
-            try:
-                chunk_ds.apply_model(
-                    model,
-                    label_field=output_field,
-                    prompt_field=temp_input_annotation_field,
-                    batch_size=len(chunk_ds),
-                    progress=progress,
-                    skip_failures=False,
-                )
-                chunk_view.set_values(
-                    output_annotation_field,
-                    chunk_ds.values(output_annotation_field),
-                )
-            finally:
-                fo.delete_dataset(chunk_ds.name)
-
+            chunk_view.apply_model(
+                model,
+                label_field=output_field,
+                prompt_field=temp_input_annotation_field,
+                batch_size=batch_size,
+                progress=progress,
+                skip_failures=False,
+            )
     finally:
         delete_field_if_exists(
             view._dataset,
-            get_frame_field_name(temp_input_annotation_field, media_mode),
+            temp_input_annotation_field,
         )
 
     return {}

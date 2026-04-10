@@ -244,7 +244,7 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
             "output_annotation_field": "labels_test_propagated",
             "propagation_method": "sam2",
             "sort_field": "new_frame_number",
-            "max_batch_size": 4,
+            "batch_size": 4,
         },
     }
 
@@ -285,7 +285,7 @@ def test_propagate_labels_video(partially_labeled_video_dataset_view):
             "output_annotation_field": "frames.labels_test_propagated",
             "propagation_method": "sam2",
             "sort_field": "frames.frame_number",
-            "max_batch_size": 4,
+            "batch_size": 1,
         },
     }
     result = foo.execute_operator(
