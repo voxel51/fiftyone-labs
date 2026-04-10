@@ -9,3 +9,6 @@ fiftyone:
   version: "*"
 operators:
   - box_combine
+tags:
+  - ml
+  - detection
