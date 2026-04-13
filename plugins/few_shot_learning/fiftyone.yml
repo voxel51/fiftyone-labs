@@ -7,3 +7,6 @@ url: https://github.com/voxel51/labs/tree/main/plugins/few_shot_learning
 license: Apache 2.0
 panels:
   - few_shot_learning
+tags:
+  - ml
+  - classification
