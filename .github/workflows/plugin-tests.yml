@@ -46,6 +46,9 @@ jobs:
         with:
           path: fiftyone
           repository: voxel51/fiftyone-teams
+          # pinned ref to avoid failures due to inconsistencies in
+          # https://github.com/voxel51/fiftyone-teams/commit/60ce501b7ca2e7fc9278fe854e6dd787b96d65a5
+          ref: fiftyone-teams-v2.16.5
           token: ${{ secrets.RO_FOT_FG_PAT }}
           sparse-checkout: |
             /*
@@ -72,8 +75,10 @@ jobs:
         run: |
           grep -h '' ./fiftyone/deployment/docker/requirements/*.txt \
             | grep -v '#' \
-            | sort \
-            | uniq > "${{ runner.temp }}/foe-requirements.txt"
+            | grep -v '^[[:space:]]*$' \
+            | sort -r \
+            | awk -F'[=><!~]' '!seen[tolower($1)]++' \
+            > "${{ runner.temp }}/foe-requirements.txt"
 
           echo "[INFO]: Generated requirements below"
           echo "--------------------------------------"
