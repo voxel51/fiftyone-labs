@@ -116,7 +116,7 @@ class LabsPanel(foo.Panel):
         panel.message("beta_tag", "BETA VERSION")
 
         # Panel header
-        panel.img("logo", height="120px")
+        panel.img("logo", width="640px")
         panel.md(
             "##### FiftyOne Labs brings research solutions and experimental features for machine learning",
             name="labs_subtitle",
