@@ -8,11 +8,11 @@ from pathlib import Path
 import sys
 
 _TEST_PKG_DIR = Path(__file__).resolve().parent
-PLUGIN_PARENT = _TEST_PKG_DIR.parent.parent / "plugins" / _TEST_PKG_DIR.name
-if str(PLUGIN_PARENT) not in sys.path:
-    sys.path.insert(0, str(PLUGIN_PARENT))
+PLUGINS_DIR = _TEST_PKG_DIR.parent.parent / "plugins"
+if str(PLUGINS_DIR) not in sys.path:
+    sys.path.insert(0, str(PLUGINS_DIR))
 
-from models import (  # type: ignore
+from few_shot_learning.models import (  # type: ignore
     SUPPORTED_MODEL_NAMES,
     get_model,
 )
@@ -65,7 +65,7 @@ def test_rocchio_rejects_alpha_hyperparam():
 
 
 def test_stack_embeddings_labels_rejects_mixed_batches():
-    from models import _stack_embeddings_and_labels  # type: ignore
+    from few_shot_learning.models import _stack_embeddings_and_labels  # type: ignore
 
     emb = np.random.randn(4, 8).astype(np.float32)
     with pytest.raises(ValueError, match="Mixed batches"):
