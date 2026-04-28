@@ -188,16 +188,20 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
     def _load_model(self, config):
         entrypoint = etau.get_function(config.entrypoint_fcn)
+        if "config_file" in config.entrypoint_args:
+            model_cfg = config.entrypoint_args["config_file"]
+        else:
+            model_cfg = config.entrypoint_args["model_cfg"]
         if self.ctx is not None:
             with self.ctx:
                 model = entrypoint(
-                    config.entrypoint_args["model_cfg"],
+                    model_cfg,
                     ckpt_path=config.model_path,
                     device=self._device,
                 )
         else:
             model = entrypoint(
-                config.entrypoint_args["model_cfg"],
+                model_cfg,
                 ckpt_path=config.model_path,
                 device=self._device,
             )
@@ -296,13 +300,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     "'prompt_field' should be a frame field for segment anything 2 video model"
                 )
 
-        negative_prompt_field = None
-
-        # TODO(neeraja): remove negative prompt field from the return value
-        # once fiftyone/fiftyone/utils/sam2.py::SegmentAnything2VideoModel::predict
-        # is edited to not use negative prompts
-        # until then, the version is capped in fiftyone.yml
-        return prompt_field, negative_prompt_field
+        return prompt_field
 
     def _get_prompt_type(self, sample, field_name):
         for _, frame in sample.frames.items():
