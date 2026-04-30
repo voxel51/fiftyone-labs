@@ -68,7 +68,7 @@ class TemporalSegmentation(foo.Operator):
             required=True,
         )
 
-        schema = get_frame_schema(ctx.dataset)
+        schema = get_frame_schema(ctx.target_view())
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
         inputs.str(
             "sort_field",
@@ -90,7 +90,7 @@ class TemporalSegmentation(foo.Operator):
         sort_field = ctx.params.get("sort_field", None)
 
         dataset = ctx.dataset
-        schema = get_frame_schema(dataset)
+        schema = dataset.get_field_schema()
         if temporal_segments_field in schema:
             ft = type(schema[temporal_segments_field]).__name__
             if ft != "EmbeddedDocumentField":
@@ -164,7 +164,7 @@ class SelectExemplars(foo.Operator):
 
     def validate_input(self, ctx) -> bool:
         temporal_segments_field = ctx.params.get("temporal_segments_field")
-        schema = ctx.dataset.get_field_schema()
+        schema = get_frame_schema(ctx.target_view())
         if temporal_segments_field in schema:
             ft = type(schema[temporal_segments_field]).__name__
             if ft != "EmbeddedDocumentField":
@@ -203,7 +203,7 @@ class SelectExemplars(foo.Operator):
             required=True,
         )
 
-        schema = get_frame_schema(ctx.dataset)
+        schema = get_frame_schema(ctx.target_view())
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
         inputs.str(
             "sort_field",
@@ -276,7 +276,7 @@ class PropagateLabels(foo.Operator):
             )
             return False
 
-        schema = get_frame_schema(ctx.dataset)
+        schema = get_frame_schema(ctx.target_view())
         if input_annotation_field not in schema:
             logger.warning(
                 f"Input annotation field '{input_annotation_field}' not found in the dataset. "
@@ -297,7 +297,7 @@ class PropagateLabels(foo.Operator):
         inputs.view_target(ctx)
 
         # Get available fields from dataset schema for autocomplete
-        schema = get_frame_schema(ctx.dataset)
+        schema = get_frame_schema(ctx.target_view())
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
 
         inputs.str(
