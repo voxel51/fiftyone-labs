@@ -2,6 +2,10 @@ import logging
 import os
 from typing import Generator, Tuple, Union, Optional, Any, List
 from copy import deepcopy
+import time
+
+import psutil
+import torch
 
 import fiftyone as fo
 import fiftyone.zoo as foz
@@ -161,6 +165,19 @@ def propagate_annotations_sam2(
         else view
     )
 
+    _proc = psutil.Process(os.getpid())
+    _ram_before = _proc.memory_info().rss / 1e9
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
+    t0 = time.perf_counter()
+    if media_mode == "video":
+        n_frames = sum(len(sample.frames) for sample in run_view.iter_samples())  # type: ignore[arg-type]
+        n_samples = len(run_view)  # type: ignore[arg-type]
+    else:
+        n_frames = len(run_view)  # type: ignore[arg-type]
+        n_samples = len(run_view)  # type: ignore[arg-type]
+
     if media_mode == "video":
         run_view.apply_model(
             model,
@@ -171,6 +188,17 @@ def propagate_annotations_sam2(
             progress=progress,
             skip_failures=False,
         )
+        t1 = time.perf_counter()
+        elapsed = t1 - t0
+        logger.info(f"\n\nElapsed: {elapsed:.2f}s")
+        logger.info(f"Samples: {n_samples} | ms/sample: {1000*elapsed/n_samples:.2f}")
+        logger.info(f"Frames: {n_frames} | ms/frame: {1000*elapsed/n_frames:.2f}")
+        _ram_after = _proc.memory_info().rss / 1e9
+        logger.info(f"RAM: {_ram_after:.2f} GB total (delta: {_ram_after - _ram_before:+.2f} GB)")
+        if torch.cuda.is_available():
+            _gpu_peak = torch.cuda.max_memory_allocated(device=model._device) / 1e9
+            logger.info(f"GPU peak: {_gpu_peak:.2f} GB")
+        logger.info("")
         return {}
 
     # For images, we support batching by chunking the view into batch_size images.
@@ -214,5 +242,17 @@ def propagate_annotations_sam2(
             view._dataset,
             temp_input_annotation_field,
         )
+    
+    t1 = time.perf_counter()
+    elapsed = t1 - t0
+    logger.info(f"\n\nElapsed: {elapsed:.2f}s")
+    logger.info(f"Samples: {n_samples} | ms/sample: {1000*elapsed/n_samples:.2f}")
+    logger.info(f"Frames: {n_frames} | ms/frame: {1000*elapsed/n_frames:.2f}")
+    _ram_after = _proc.memory_info().rss / 1e9
+    logger.info(f"RAM: {_ram_after:.2f} GB total (delta: {_ram_after - _ram_before:+.2f} GB)")
+    if torch.cuda.is_available():
+        _gpu_peak = torch.cuda.max_memory_allocated(device=model._device) / 1e9
+        logger.info(f"GPU peak: {_gpu_peak:.2f} GB")
+    logger.info("")
 
     return {}
