@@ -48,9 +48,6 @@ class LabelPropagationPanel(foo.Panel):
         - Persist the base view to ctx.panel.base_view
           in a serializable format
         """
-
-        # TODO(neeraja): add support for video datasets
-
         if ctx.view.media_type == fom.GROUP:
             base_view_ids = ctx.view.flatten().values("id")
             group_clause = next(
@@ -148,13 +145,13 @@ class LabelPropagationPanel(foo.Panel):
         )
         if (
             not segments_field
-            or segments_field not in ctx.dataset.get_field_schema()
+            or segments_field not in ctx.target_view().get_field_schema()
         ):
             ctx.panel.state.temporal_segments_field_exists_and_is_populated = (
                 False
             )
             return
-        view = ctx.view
+        view = ctx.target_view()
         samples_with_segment_labels = view.exists(segments_field)
         ctx.panel.state.temporal_segments_field_exists_and_is_populated = len(
             samples_with_segment_labels
@@ -448,7 +445,7 @@ class LabelPropagationPanel(foo.Panel):
 
         # Configuration inputs (always at top)
         panel.md("#### Configuration", name="panel_config_header")
-        schema = get_frame_schema(ctx.dataset)
+        schema = get_frame_schema(ctx.target_view())
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
         panel.str(
             "sort_field",

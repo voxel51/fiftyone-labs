@@ -51,6 +51,7 @@ FiftyOne Labs Features which are developed using the [FiftyOne plugins ecosystem
     </tr>
     <tr>
         <td><b><a href="https://github.com/voxel51/fiftyone-labs/tree/main/plugins/label_propagation">@51labs/label_propagation</a></b></td>
+        <td><kbd>ml</kbd> <kbd>video</kbd> <kbd>segmentation</kbd></td>
         <td>Propagating Labels across frames of a video</td>
     </tr>
     <tr>

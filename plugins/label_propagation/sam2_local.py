@@ -188,16 +188,20 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
     def _load_model(self, config):
         entrypoint = etau.get_function(config.entrypoint_fcn)
+        if "config_file" in config.entrypoint_args:
+            model_cfg = config.entrypoint_args["config_file"]
+        else:
+            model_cfg = config.entrypoint_args["model_cfg"]
         if self.ctx is not None:
             with self.ctx:
                 model = entrypoint(
-                    config.entrypoint_args["config_file"],
+                    model_cfg,
                     ckpt_path=config.model_path,
                     device=self._device,
                 )
         else:
             model = entrypoint(
-                config.entrypoint_args["config_file"],
+                model_cfg,
                 ckpt_path=config.model_path,
                 device=self._device,
             )
