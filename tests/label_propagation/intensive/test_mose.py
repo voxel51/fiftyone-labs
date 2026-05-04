@@ -92,6 +92,16 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
         gt_field="ground_truth",
     )
 
-    with open(f"scores_mose_{sequence_id}_sam2.csv", "w") as f:
-        for i, score in enumerate(scores_eval_detections):
-            f.write(f"{i},{score}\n")
+    # with open(f"scores_mose_{sequence_id}_sam2.csv", "w") as f:
+    #     for i, score in enumerate(scores_eval_detections):
+    #         f.write(f"{i},{score}\n")
+
+    indices = view.values("labels_test_propagated.detections.index")
+    assert (
+        indices[0] == indices[-1]
+    )  # same number of objects in the first and last frames
+
+    indices = view.values("labels_test_propagated.detections.index")
+    assert (
+        len(set(indices[0]).intersection(set(indices[-1]))) > 0
+    )  # similar number of objects in the first and last frames
