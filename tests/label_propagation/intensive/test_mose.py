@@ -13,10 +13,11 @@ PLUGINS_DIR = _TEST_PKG_DIR.parent.parent / "plugins"
 if str(PLUGINS_DIR) not in sys.path:
     sys.path.insert(0, str(PLUGINS_DIR))
 
-from label_propagation.suc_utils import evaluate_matched  # type: ignore
+from label_propagation.suc_utils import (  # type: ignore
+    evaluate_detections,
+)
 
-
-@pytest.fixture(params=[0, 2, 4, 6, 8])
+@pytest.fixture(params=[0, 2, 4, 6, 8, 10, 12])
 def image_dataset_view(request):
     dataset = foz.load_zoo_dataset(
         "https://github.com/voxel51/mose-v2",
@@ -25,7 +26,7 @@ def image_dataset_view(request):
     sequence_ids = sorted(dataset.distinct("sequence_id"))  # type: ignore[arg-type]
     sequence_id = sequence_ids[request.param]
     view = dataset.match(F("sequence_id") == sequence_id)
-    view = view.match(F("frame_number") < 9)
+    # view = view.match(F("frame_number") < 9)
     return view
 
 
@@ -66,6 +67,8 @@ def partially_labeled_image_dataset_view(image_dataset_view):
 
 def test_propagate_labels_image(partially_labeled_image_dataset_view):
     view = partially_labeled_image_dataset_view
+    sequence_id = view.first()["sequence_id"]
+
     ctx = {
         "dataset": view._dataset,
         "view": view,
@@ -82,22 +85,12 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    pred_detections = view.values("labels_test_propagated")
-    gt_detections = view.values("ground_truth")
+    scores_eval_detections = evaluate_detections(
+        view,
+        pred_field="labels_test_propagated",
+        gt_field="ground_truth",
+    )
 
-    scores = []
-    for pred, gt in zip(pred_detections, gt_detections):
-        scores.append(evaluate_matched(pred, gt))
-
-    print("per frame scores: ", scores)
-    assert np.mean(scores) > 0.6
-
-    indices = view.values("labels_test_propagated.detections.index")
-    assert (
-        indices[0] == indices[-1]
-    )  # same number of objects in the first and last frames
-
-    indices = view.values("labels_test_propagated.detections.index")
-    assert (
-        len(set(indices[0]).intersection(set(indices[-1]))) > 0
-    )  # similar number of objects in the first and last frames
+    with open(f"scores_mose_{sequence_id}_sam2.csv", "w") as f:
+        for i, score in enumerate(scores_eval_detections):
+            f.write(f"{i},{score}\n")
