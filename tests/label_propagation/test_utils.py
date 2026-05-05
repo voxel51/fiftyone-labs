@@ -223,6 +223,27 @@ class TestEvalMetrics:
         score_suc = evaluate_success_rate(original, propagated)
         assert abs(score - score_suc) < 1e-6
 
+        # Zero-area placeholders are dropped before matching, so ``evaluate`` and
+        # ``evaluate_success_rate`` stay aligned (no artificial IoU=1 padding).
+        original = MockDetections([{"bounding_box": [0.1, 0.1, 0.2, 0.2]}])
+        propagated = MockDetections(
+            [
+                {"bounding_box": [0.1, 0.1, 0.2, 0.2]},
+                {"bounding_box": [0.0, 0.0, 0.0, 0.0]},
+            ]
+        )
+        score = evaluate(original, propagated)
+        score_suc = evaluate_success_rate(original, propagated)
+        assert abs(score - 1.0) < 1e-6
+        assert abs(score_suc - 1.0) < 1e-6
+        assert abs(score - score_suc) < 1e-6
+
+        score_rev = evaluate(propagated, original)
+        score_suc_rev = evaluate_success_rate(propagated, original)
+        assert abs(score_rev - 1.0) < 1e-6
+        assert abs(score_suc_rev - 1.0) < 1e-6
+        assert abs(score_rev - score_suc_rev) < 1e-6
+
     def test_evaluate_success_rate_nulls(self):
         # Test case: null detections
         original = MockDetections(None)
@@ -375,3 +396,95 @@ class TestEvalMetrics:
         )
         score = evaluate_success_rate_matched(original, propagated)
         assert score < 1e-6
+
+    def test_coco_eval(self, tmp_path):
+        """
+        Illustrate FiftyOne COCO-style `evaluate_detections` vs `evaluate()`.
+
+        COCO-style metrics use a fixed IoU threshold (TP/FP/FN), class matching,
+        and global precision/recall; `evaluate()` is Hungarian mean IoU over
+        max(G, P). Scores are printed only (no assertions).
+        """
+        pytest.importorskip("PIL", reason="PIL required for sample images")
+        import fiftyone as fo
+        from fiftyone import Detection, Detections
+        from PIL import Image
+
+        img_path = tmp_path / "coco_eval.jpg"
+        Image.new("RGB", (100, 100), color=(0, 0, 0)).save(img_path)
+
+        cases = [
+            (
+                "perfect_match",
+                [Detection(label="obj", bounding_box=[0.1, 0.1, 0.2, 0.2])],
+                [Detection(label="obj", bounding_box=[0.1, 0.1, 0.2, 0.2])],
+            ),
+            (
+                "partial_overlap_iou_1_7",
+                [Detection(label="obj", bounding_box=[0.1, 0.1, 0.2, 0.2])],
+                [Detection(label="obj", bounding_box=[0.2, 0.2, 0.2, 0.2])],
+            ),
+            (
+                "one_gt_two_preds_hungarian",
+                [Detection(label="obj", bounding_box=[0.1, 0.1, 0.2, 0.2])],
+                [
+                    Detection(
+                        label="obj", bounding_box=[0.35, 0.35, 0.2, 0.2]
+                    ),
+                    Detection(
+                        label="obj", bounding_box=[0.11, 0.11, 0.2, 0.2]
+                    ),
+                ],
+            ),
+            (
+                "two_gt_one_pred",
+                [
+                    Detection(label="obj", bounding_box=[0.1, 0.1, 0.2, 0.2]),
+                    Detection(label="obj", bounding_box=[0.5, 0.6, 0.2, 0.2]),
+                ],
+                [Detection(label="obj", bounding_box=[0.11, 0.11, 0.2, 0.2])],
+            ),
+            (
+                "label_mismatch_same_box",
+                [Detection(label="gt_cls", bounding_box=[0.1, 0.1, 0.2, 0.2])],
+                [
+                    Detection(
+                        label="pred_cls", bounding_box=[0.1, 0.1, 0.2, 0.2]
+                    )
+                ],
+            ),
+        ]
+
+        for iou_thresh in (0.5, 0.9):
+            print(f"\n--- COCO eval iou={iou_thresh} ---")
+            for name, gt_list, pr_list in cases:
+                gt_fo = Detections(detections=gt_list)
+                pr_fo = Detections(detections=pr_list)
+                eval_score = evaluate(gt_fo, pr_fo)
+
+                ds = fo.Dataset()
+                try:
+                    ds.add_sample(
+                        fo.Sample(
+                            filepath=str(img_path),
+                            ground_truth=gt_fo,
+                            predictions=pr_fo,
+                        )
+                    )
+                    coco_result = fo.utils.eval.detection.evaluate_detections(  # type: ignore[attr-defined]
+                        ds,
+                        pred_field="predictions",
+                        gt_field="ground_truth",
+                        iou=iou_thresh,
+                    )
+                    coco_metrics = coco_result.metrics()
+                finally:
+                    ds.delete()
+
+                print(
+                    f"{name}: evaluate()={eval_score:.6f} | "
+                    f"coco fscore={coco_metrics['fscore']:.6f} "
+                    f"precision={coco_metrics['precision']:.6f} "
+                    f"recall={coco_metrics['recall']:.6f} "
+                    f"accuracy={coco_metrics['accuracy']:.6f}"
+                )

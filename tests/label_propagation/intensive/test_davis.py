@@ -16,7 +16,11 @@ PLUGINS_DIR = _TEST_PKG_DIR.parent.parent / "plugins"
 if str(PLUGINS_DIR) not in sys.path:
     sys.path.insert(0, str(PLUGINS_DIR))
 
-from label_propagation.suc_utils import evaluate_matched  # type: ignore
+from label_propagation.suc_utils import (  # type: ignore
+    evaluate_detections,
+    evaluate_matched,
+    sort_detections_by_index,
+)
 
 
 @pytest.fixture
@@ -272,15 +276,24 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
     )
     print(result.result["message"])  # type: ignore[index]
 
-    pred_detections = partially_labeled_view.values("labels_test_propagated")
-    gt_detections = partially_labeled_view.values("ground_truth")
+    scores_eval_detections = evaluate_detections(
+        partially_labeled_view,
+        pred_field="labels_test_propagated",
+        gt_field="ground_truth",
+    )
 
-    scores = []
-    for pred, gt in zip(pred_detections, gt_detections):
-        scores.append(evaluate_matched(pred, gt))
+    print("per frame scores: ", scores_eval_detections)
+    assert np.min(scores_eval_detections) > 0.9
 
-    print("per frame scores: ", scores)
-    assert np.min(scores) > 0.9
+    if partially_labeled_view.media_type == "image":
+        # coco-style evaluation
+        coco_result = fo.utils.eval.detection.evaluate_detections(  # type: ignore[attr-defined]
+            partially_labeled_view,
+            pred_field="labels_test_propagated",
+            gt_field="ground_truth",
+            iou=0.9,
+        )
+        assert coco_result.metrics()["fscore"] > 0.9
 
     check_view = (
         partially_labeled_view.flatten()
@@ -330,22 +343,42 @@ def test_propagate_labels_video(partially_labeled_video_dataset_view):
     )
     print(result.result["message"])  # type: ignore[index]
 
+    scores_eval_detections = evaluate_detections(
+        partially_labeled_video_dataset_view,
+        pred_field="frames.labels_test_propagated",
+        gt_field="frames.ground_truth",
+    )
+
     pred_detections = partially_labeled_video_dataset_view.values(
         "frames.labels_test_propagated"
     )
     gt_detections = partially_labeled_video_dataset_view.values(
         "frames.ground_truth"
     )
-
-    scores = []
+    scores_manual_index_order = []
     for sample_pred_detections, sample_gt_detections in zip(
         pred_detections, gt_detections
     ):
         for pred, gt in zip(sample_pred_detections, sample_gt_detections):
-            scores.append(evaluate_matched(pred, gt))
+            scores_manual_index_order.append(
+                evaluate_matched(
+                    sort_detections_by_index(pred),
+                    sort_detections_by_index(gt),
+                )
+            )
+    assert np.allclose(scores_eval_detections, scores_manual_index_order)
 
-    print("per frame scores: ", scores)
-    assert np.min(scores) > 0.9
+    print("per frame scores: ", scores_eval_detections)
+    assert np.min(scores_eval_detections) > 0.5
+
+    # coco-style evaluation
+    coco_result = fo.utils.eval.detection.evaluate_detections(  # type: ignore[attr-defined]
+        partially_labeled_video_dataset_view,
+        pred_field="frames.labels_test_propagated",
+        gt_field="frames.ground_truth",
+        iou=0.9,
+    )
+    assert coco_result.metrics()["fscore"] > 0.5
 
     all_indices = partially_labeled_video_dataset_view.values(
         "frames.labels_test_propagated.detections.index"
