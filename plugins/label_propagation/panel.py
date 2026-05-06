@@ -9,7 +9,7 @@ import fiftyone.operators.types as types
 import fiftyone.core.stages as fos
 import fiftyone.core.media as fom
 
-from .utils import get_frame_schema, get_auth
+from .utils import get_frame_schema, get_detections_fields, get_auth
 from .exemplars import (
     SUPPORTED_EXEMPLAR_SCORING_METHODS,
     SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
@@ -565,12 +565,16 @@ class LabelPropagationPanel(foo.Panel):
 
         # Propagation section
         panel.md("#### Propagation")
+        detections_schema = get_detections_fields(ctx.target_view())
+        detections_choices = [
+            types.Choice(label=f, value=f) for f in detections_schema.keys()
+        ]
         panel.str(
             "input_annotation_field",
             label="Input Annotation Field",
             default=None,
-            view=types.AutocompleteView(choices=field_choices)
-            if field_choices
+            view=types.AutocompleteView(choices=detections_choices)
+            if detections_choices
             else None,
             required=True,
             description="Field containing annotations to propagate from",
