@@ -13,7 +13,7 @@ import fiftyone.operators as foo
 import fiftyone.operators.types as types
 import fiftyone.utils.labels as foul
 
-from .utils import get_frame_schema, auth_context
+from .utils import get_frame_schema, get_detections_fields, auth_context
 from .exemplars import (
     SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
     SUPPORTED_EXEMPLAR_SCORING_METHODS,
@@ -300,11 +300,16 @@ class PropagateLabels(foo.Operator):
         schema = get_frame_schema(ctx.target_view())
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
 
+        detections_schema = get_detections_fields(ctx.target_view())
+        detections_choices = [
+            types.Choice(label=f, value=f) for f in detections_schema.keys()
+        ]
+
         inputs.str(
             "input_annotation_field",
             label="Annotation Field to Propagate from",
-            view=types.AutocompleteView(choices=field_choices)
-            if field_choices
+            view=types.AutocompleteView(choices=detections_choices)
+            if detections_choices
             else None,
             required=True,
         )
