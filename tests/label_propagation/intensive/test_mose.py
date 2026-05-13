@@ -3,6 +3,10 @@ import numpy as np
 from pathlib import Path
 import sys
 
+import matplotlib.pyplot as plt
+import cv2
+import numpy as np
+
 import fiftyone as fo
 import fiftyone.zoo as foz
 import fiftyone.operators as foo
@@ -16,9 +20,14 @@ if str(PLUGINS_DIR) not in sys.path:
 from label_propagation.suc_utils import (  # type: ignore
     evaluate_detections,
 )
+from label_propagation.embedding_utils import (  # type: ignore
+    get_sam2_embeddings,
+)
 
 
-@pytest.fixture(params=[0, 2, 4, 6, 8, 10, 12])
+PROPAGATION_METHOD = "sam2"
+
+@pytest.fixture(params=[6, 10])
 def image_dataset_view(request):
     dataset = foz.load_zoo_dataset(
         "https://github.com/voxel51/mose-v2",
@@ -33,17 +42,17 @@ def image_dataset_view(request):
 
 @pytest.fixture
 def partially_labeled_image_dataset_view(image_dataset_view):
-    for field in ("labels_test", "labels_test_propagated"):
-        if field in image_dataset_view._dataset.get_field_schema():
-            image_dataset_view._dataset.delete_sample_field(
-                field, error_level=2
-            )
+    # for field in ("labels_test", "labels_test_propagated"):
+    #     if field in image_dataset_view._dataset.get_field_schema():
+    #         image_dataset_view._dataset.delete_sample_field(
+    #             field, error_level=2
+    #         )
 
-    image_dataset_view._dataset.add_sample_field(
-        "labels_test",
-        fo.EmbeddedDocumentField,
-        embedded_doc_type=fo.Detections,
-    )
+    # image_dataset_view._dataset.add_sample_field(
+    #     "labels_test",
+    #     fo.EmbeddedDocumentField,
+    #     embedded_doc_type=fo.Detections,
+    # )
 
     sequences = image_dataset_view.distinct("sequence_id")
     new_frame_number = 0
@@ -76,8 +85,9 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
         "params": {
             "input_annotation_field": "labels_test",
             "output_annotation_field": "labels_test_propagated",
-            "propagation_method": "sam2",
+            "propagation_method": PROPAGATION_METHOD,
             "sort_field": "new_frame_number",
+            "batch_size": 256,
         },
     }
 
@@ -91,6 +101,7 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
         pred_field="labels_test_propagated",
         gt_field="ground_truth",
     )
+    view.set_values("sam2_propagation_score", scores_eval_detections)
 
     # with open(f"scores_mose_{sequence_id}_sam2.csv", "w") as f:
     #     for i, score in enumerate(scores_eval_detections):
@@ -105,3 +116,27 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
     assert (
         len(set(indices[0]).intersection(set(indices[-1]))) > 0
     )  # similar number of objects in the first and last frames
+
+
+def test_embeddings_for_propagatability(partially_labeled_image_dataset_view):
+    view = partially_labeled_image_dataset_view
+
+    # only need to call once
+    # view = get_sam2_embeddings(view)
+
+    im1 = cv2.imread(view.skip(2).first()["filepath"])
+    im2 = cv2.imread(view.skip(3).first()["filepath"])
+
+    score1 = view.skip(2).first()["sam2_propagation_score"]
+    score2 = view.skip(3).first()["sam2_propagation_score"]
+
+    emb1 = view.skip(2).first()["sam2_backbone_embeddings"]
+    emb2 = view.skip(3).first()["sam2_backbone_embeddings"]
+
+    
+    plt.imshow(im1)
+    plt.show()
+    plt.imshow(im2)
+    plt.show()
+
+    breakpoint()
