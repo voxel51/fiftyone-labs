@@ -20,10 +20,12 @@ from .exemplars import (
     extract_temporal_segments,
     select_exemplars,
 )
-from .propagation import (
-    SUPPORTED_PROPAGATION_METHODS,
-    propagate_annotations_sam2,
-)
+from .propagation import propagate_annotations_sam2
+from .propagation_cv2 import CV2_PROPAGATION_METHODS, propagate_annotations_cv2
+from .propagation_grabcut import GRABCUT_PROPAGATION_METHODS, propagate_annotations_grabcut
+from .propagation_densecrf import DENSECRF_PROPAGATION_METHODS, propagate_annotations_densecrf
+
+SUPPORTED_PROPAGATION_METHODS = ["sam2"] + CV2_PROPAGATION_METHODS + GRABCUT_PROPAGATION_METHODS + DENSECRF_PROPAGATION_METHODS
 from .panel import LabelPropagationPanel
 
 
@@ -379,6 +381,31 @@ class PropagateLabels(foo.Operator):
                     output_annotation_field=output_annotation_field,
                     sort_field=sort_field,
                     batch_size=batch_size,
+                    progress=True,
+                )
+            elif propagation_method in CV2_PROPAGATION_METHODS:
+                _ = propagate_annotations_cv2(
+                    view=view,
+                    input_annotation_field=input_annotation_field,
+                    output_annotation_field=output_annotation_field,
+                    method=propagation_method,
+                    sort_field=sort_field,
+                    progress=True,
+                )
+            elif propagation_method in GRABCUT_PROPAGATION_METHODS:
+                _ = propagate_annotations_grabcut(
+                    view=view,
+                    input_annotation_field=input_annotation_field,
+                    output_annotation_field=output_annotation_field,
+                    sort_field=sort_field,
+                    progress=True,
+                )
+            elif propagation_method in DENSECRF_PROPAGATION_METHODS:
+                _ = propagate_annotations_densecrf(
+                    view=view,
+                    input_annotation_field=input_annotation_field,
+                    output_annotation_field=output_annotation_field,
+                    sort_field=sort_field,
                     progress=True,
                 )
             else:

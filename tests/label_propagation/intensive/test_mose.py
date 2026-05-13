@@ -17,6 +17,8 @@ from label_propagation.suc_utils import (  # type: ignore
     evaluate_detections,
 )
 
+PROPAGATION_METHOD = ""
+
 @pytest.fixture(params=[0, 2, 4, 6, 8, 10, 12])
 def image_dataset_view(request):
     dataset = foz.load_zoo_dataset(
@@ -75,7 +77,7 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
         "params": {
             "input_annotation_field": "labels_test",
             "output_annotation_field": "labels_test_propagated",
-            "propagation_method": "sam2",
+            "propagation_method": PROPAGATION_METHOD,
             "sort_field": "new_frame_number",
         },
     }
@@ -91,6 +93,6 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
         gt_field="ground_truth",
     )
 
-    with open(f"scores_mose_{sequence_id}_sam2.csv", "w") as f:
+    with open(f"scores_mose_{sequence_id}_{PROPAGATION_METHOD}.csv", "w") as f:
         for i, score in enumerate(scores_eval_detections):
             f.write(f"{i},{score}\n")
