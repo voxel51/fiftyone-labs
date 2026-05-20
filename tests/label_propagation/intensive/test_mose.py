@@ -133,9 +133,9 @@ def test_embeddings_for_propagatability(partially_labeled_image_dataset_view):
     emb1 = view.skip(2).first()["sam2_backbone_embeddings"]
     emb2 = view.skip(3).first()["sam2_backbone_embeddings"]
 
-    
+    plt.subplot(1, 2, 1)
     plt.imshow(im1)
-    plt.show()
+    plt.subplot(1, 2, 2)
     plt.imshow(im2)
     plt.show()
 
