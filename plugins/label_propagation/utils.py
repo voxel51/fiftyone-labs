@@ -74,6 +74,17 @@ def get_keypoints_fields(ds: fo.Dataset) -> dict:
     }
 
 
+def get_polylines_fields(ds: fo.Dataset) -> dict:
+    """Return only fields of type fo.Polylines from the frame schema."""
+    schema = get_frame_schema(ds)
+    return {
+        name: field
+        for name, field in schema.items()
+        if hasattr(field, "document_type")
+        and field.document_type is fo.Polylines
+    }
+
+
 def get_local_path(sample_or_frame):
     return (
         sample_or_frame.filepath

@@ -146,7 +146,10 @@ class SAM2ObjectTracker:
         return obj_id
 
     def index_and_label(self, obj_id):
-        return self._sam2_obj_id_to_track_index[obj_id], self._sam2_obj_id_to_label[obj_id]
+        return (
+            self._sam2_obj_id_to_track_index[obj_id],
+            self._sam2_obj_id_to_label[obj_id],
+        )
 
 
 class SegmentAnything2VideoModelConfig(

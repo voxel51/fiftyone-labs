@@ -283,12 +283,26 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
     input_indices = partially_labeled_view.values(
         "labels_test.detections.index"
     )
-    input_indices = set([ii for sublist in input_indices if sublist is not None for ii in sublist])
+    input_indices = set(
+        [
+            ii
+            for sublist in input_indices
+            if sublist is not None
+            for ii in sublist
+        ]
+    )
 
     output_indices = partially_labeled_view.values(
         "labels_test_propagated.detections.index"
     )
-    output_indices = set([ii for sublist in output_indices if sublist is not None for ii in sublist])
+    output_indices = set(
+        [
+            ii
+            for sublist in output_indices
+            if sublist is not None
+            for ii in sublist
+        ]
+    )
 
     assert input_indices == output_indices
 
