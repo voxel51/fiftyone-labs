@@ -63,6 +63,17 @@ def get_detections_fields(ds: fo.Dataset) -> dict:
     }
 
 
+def get_keypoints_fields(ds: fo.Dataset) -> dict:
+    """Return only fields of type fo.Keypoints from the frame schema."""
+    schema = get_frame_schema(ds)
+    return {
+        name: field
+        for name, field in schema.items()
+        if hasattr(field, "document_type")
+        and field.document_type is fo.Keypoints
+    }
+
+
 def get_local_path(sample_or_frame):
     return (
         sample_or_frame.filepath

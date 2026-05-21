@@ -13,7 +13,7 @@ import fiftyone.operators as foo
 import fiftyone.operators.types as types
 import fiftyone.utils.labels as foul
 
-from .utils import get_frame_schema, get_detections_fields, auth_context
+from .utils import get_frame_schema, get_detections_fields, get_keypoints_fields, auth_context
 from .exemplars import (
     SUPPORTED_TEMPORAL_SEGMENTATION_METHODS,
     SUPPORTED_EXEMPLAR_SCORING_METHODS,
@@ -24,6 +24,7 @@ from .propagation import (
     SUPPORTED_PROPAGATION_METHODS,
     propagate_annotations_sam2,
 )
+from .kp_propagation import propagate_keypoints_cotracker
 from .panel import LabelPropagationPanel
 
 
@@ -301,15 +302,18 @@ class PropagateLabels(foo.Operator):
         field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
 
         detections_schema = get_detections_fields(ctx.target_view())
-        detections_choices = [
-            types.Choice(label=f, value=f) for f in detections_schema.keys()
+        keypoints_schema = get_keypoints_fields(ctx.target_view())
+        propagatable_choices = [
+            types.Choice(label=f, value=f)
+            for f in list(detections_schema.keys()) + list(keypoints_schema.keys())
         ]
 
         inputs.str(
             "input_annotation_field",
             label="Annotation Field to Propagate from",
-            view=types.AutocompleteView(choices=detections_choices)
-            if detections_choices
+            description="Detections fields use SAM2; Keypoints fields use CoTracker.",
+            view=types.AutocompleteView(choices=propagatable_choices)
+            if propagatable_choices
             else None,
             required=True,
         )
@@ -387,8 +391,26 @@ class PropagateLabels(foo.Operator):
             "propagate_bidirectionally", True
         )
 
+        # Detect field type to choose the right backend automatically.
+        schema = get_frame_schema(view)
+        field = schema.get(input_annotation_field)
+        is_keypoints_field = (
+            field is not None
+            and hasattr(field, "document_type")
+            and field.document_type is fo.Keypoints
+        )
+
         try:
-            if propagation_method == "sam2":
+            if is_keypoints_field:
+                _ = propagate_keypoints_cotracker(
+                    view=view,
+                    input_annotation_field=input_annotation_field,
+                    output_annotation_field=output_annotation_field,
+                    sort_field=sort_field,
+                    progress=True,
+                    bidirectional=propagate_bidirectionally,
+                )
+            elif propagation_method == "sam2":
                 _ = propagate_annotations_sam2(
                     view=view,
                     input_annotation_field=input_annotation_field,
@@ -402,7 +424,7 @@ class PropagateLabels(foo.Operator):
                 raise RuntimeError(
                     f"Unsupported propagation method '{propagation_method}'"
                 )
-            if view.media_type == "video":
+            if view.media_type == "video" and not is_keypoints_field:
                 # instances keyed by (id, label, index); not common for image datasets
                 with auth_context():
                     foul.index_to_instance(view, output_annotation_field)
