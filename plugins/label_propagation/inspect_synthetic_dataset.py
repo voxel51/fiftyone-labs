@@ -11,6 +11,7 @@ element-wise diffs, and saves statistic plots (no interactive display).
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -20,6 +21,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+_PLUGINS_DIR = Path(__file__).resolve().parent.parent
+if str(_PLUGINS_DIR) not in sys.path:
+    sys.path.insert(0, str(_PLUGINS_DIR))
+
+from label_propagation.embedding_utils import (  # type: ignore
+    consecutive_hausdorff_distance_maps,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -73,6 +82,13 @@ MEAN_ABS_SPATIAL_FORMULA = r"\frac{1}{D}\sum_{d}\left|(\Delta x)_{dhw}\right|"
 FRACTION_ABOVE_FORMULA = (
     r"\frac{1}{DHW}\sum_{d,h,w}\mathbf{1}\!\left[\left|(\Delta x)_{dhw}\right|>\tau\right]"
 )
+
+HAUSDORFF_MAP_FORMULA = (
+    r"d_{hw}=\min_{h',w'\in\mathcal{N}(h,w)}"
+    r"\sqrt{\sum_d\left(x_{i+1,dhw}-x_{i,dh'w'}\right)^2}"
+)
+
+HAUSDORFF_MAX_FORMULA = r"H(x_i,x_{i+1})=\max_{h,w}\, d_{hw}"
 
 X_LABEL = r"frame number $j$ (later frame in pair $x_{j-1}, x_j$)"
 
@@ -342,6 +358,113 @@ def plot_mean_abs_heatmaps(
     plt.close(fig)
 
 
+def plot_hausdorff_max(
+    sequence_id: str,
+    x: np.ndarray,
+    max_distances: np.ndarray,
+    out_path: Path,
+) -> None:
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    ax.plot(
+        x,
+        max_distances,
+        marker="o",
+        color="C3",
+        linewidth=2,
+        label=f"${HAUSDORFF_MAX_FORMULA}$",
+    )
+    ax.set_xlabel(X_LABEL)
+    _set_ylabel_with_formula(ax, HAUSDORFF_MAX_FORMULA, short="Hausdorff max")
+    ax.set_title(
+        f"{sequence_id}: asymmetric Hausdorff distance\n"
+        f"${HAUSDORFF_MAP_FORMULA}$",
+        fontsize=10,
+    )
+    _add_notation_caption(fig, y=1.02)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_hausdorff_heatmaps(
+    sequence_id: str,
+    x: np.ndarray,
+    diff_maps: np.ndarray,
+    out_path: Path,
+) -> None:
+    n = diff_maps.shape[0]
+    ncols = 5
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
+    axes = np.atleast_2d(axes)
+
+    vmax = float(np.max(diff_maps)) if diff_maps.size else 1.0
+    im = None
+    for idx in range(nrows * ncols):
+        r, c = divmod(idx, ncols)
+        ax = axes[r, c]
+        if idx < n:
+            im = ax.imshow(diff_maps[idx], cmap="viridis", vmin=0, vmax=vmax)
+            ax.set_title(f"frame {int(x[idx])}")
+            ax.axis("off")
+        else:
+            ax.axis("off")
+
+    if im is not None:
+        fig.colorbar(
+            im,
+            ax=axes.ravel().tolist(),
+            shrink=0.6,
+            label=f"${HAUSDORFF_MAP_FORMULA}$",
+        )
+    fig.suptitle(
+        f"{sequence_id}: Hausdorff distance map on $x_{{i+1}}$\n"
+        f"${HAUSDORFF_MAP_FORMULA}$",
+        fontsize=10,
+    )
+    fig.text(
+        0.5,
+        0.01,
+        NOTATION_CAPTION,
+        ha="center",
+        va="bottom",
+        fontsize=9,
+    )
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_all_sequences_hausdorff(
+    sequence_stats: Dict[str, np.ndarray],
+    x_by_seq: Dict[str, np.ndarray],
+    out_path: Path,
+) -> None:
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    for sequence_id, curve in sequence_stats.items():
+        ax.plot(
+            x_by_seq[sequence_id],
+            curve,
+            marker="o",
+            linewidth=2,
+            label=sequence_id,
+        )
+    ax.set_xlabel(X_LABEL)
+    _set_ylabel_with_formula(ax, HAUSDORFF_MAX_FORMULA)
+    ax.set_title(
+        "All sequences: asymmetric Hausdorff max\n"
+        f"${HAUSDORFF_MAP_FORMULA}$",
+        fontsize=10,
+    )
+    _add_notation_caption(fig, y=1.02)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 def plot_fraction_above_threshold(
     sequence_id: str,
     x: np.ndarray,
@@ -409,75 +532,142 @@ def plot_all_sequences_comparison(
     plt.close(fig)
 
 
+def inspect_sequence_embeddings(
+    sequence_id: str,
+    frame_numbers: np.ndarray,
+    embeddings: np.ndarray,
+    out_dir: Path,
+    show_progress: bool = True,
+) -> Tuple[Dict[str, np.ndarray], np.ndarray]:
+    """
+    Compute embedding-diff / Hausdorff stats and save plots for one sequence.
+
+    Returns:
+        Tuple of (per-sequence comparison stats dict, x-axis frame numbers for diffs).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    diffs = _consecutive_diffs(embeddings)
+    x = _diff_x_axis(frame_numbers)
+
+    logger.info(
+        "Computing Hausdorff distance maps for %r (%d frame pairs)...",
+        sequence_id,
+        len(x),
+    )
+    hausdorff_maps = consecutive_hausdorff_distance_maps(
+        embeddings,
+        show_progress=show_progress,
+        progress_desc=str(sequence_id),
+    )
+    hausdorff_max = np.max(hausdorff_maps, axis=(1, 2))
+
+    logger.info(
+        "sequence %r: %d frames, embeddings %s, diffs %s, hausdorff_maps %s",
+        sequence_id,
+        len(frame_numbers),
+        embeddings.shape,
+        diffs.shape,
+        hausdorff_maps.shape,
+    )
+
+    stats = {
+        "mean": _aggregate_stat_curve(diffs, "mean"),
+        "std": _aggregate_stat_curve(diffs, "std"),
+        "l2": _l2_norm_curve(diffs),
+        "cosine": _cosine_distance_curve(embeddings),
+        "hausdorff_max": hausdorff_max,
+    }
+
+    plot_aggregate_stats(sequence_id, x, diffs, out_dir / "aggregate_stats.png")
+    plot_per_channel_stats(
+        sequence_id, x, diffs, out_dir / "per_channel_stats.png"
+    )
+    plot_l2_and_cosine(
+        sequence_id, x, embeddings, diffs, out_dir / "l2_and_cosine.png"
+    )
+    plot_mean_abs_heatmaps(
+        sequence_id, x, diffs, out_dir / "mean_abs_spatial_heatmaps.png"
+    )
+    plot_fraction_above_threshold(
+        sequence_id, x, diffs, out_dir / "fraction_above_threshold.png"
+    )
+    plot_hausdorff_max(
+        sequence_id, x, hausdorff_max, out_dir / "hausdorff_max.png"
+    )
+    plot_hausdorff_heatmaps(
+        sequence_id, x, hausdorff_maps, out_dir / "hausdorff_heatmaps.png"
+    )
+
+    return stats, x
+
+
 def inspect_dataset(
+    dataset: fo.Dataset,
+    sequence_ids: List[str],
+    output_dir: Path,
+    show_progress: bool = True,
+) -> Path:
+    """Compute diff / Hausdorff stats and save plots. Returns output directory."""
+    if EMBEDDING_FIELD not in dataset.get_field_schema():
+        raise ValueError(f"Dataset has no {EMBEDDING_FIELD!r}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    comparison_stats: Dict[str, Dict[str, np.ndarray]] = {}
+    hausdorff_max_by_seq: Dict[str, np.ndarray] = {}
+    x_by_seq: Dict[str, np.ndarray] = {}
+
+    sequence_iter = sequence_ids
+    if show_progress:
+        from tqdm import tqdm
+
+        sequence_iter = tqdm(sequence_ids, desc="Inspect sequences")
+
+    for sequence_id in sequence_iter:
+        seq_dir = output_dir / str(sequence_id)
+        frame_numbers, embeddings = _load_sequence_embeddings(dataset, sequence_id)
+        stats, x = inspect_sequence_embeddings(
+            sequence_id,
+            frame_numbers,
+            embeddings,
+            seq_dir,
+            show_progress=show_progress,
+        )
+        comparison_stats[sequence_id] = stats
+        hausdorff_max_by_seq[sequence_id] = stats["hausdorff_max"]
+        x_by_seq[sequence_id] = x
+
+    plot_all_sequences_comparison(
+        comparison_stats, x_by_seq, output_dir / "all_sequences_comparison.png"
+    )
+    plot_all_sequences_hausdorff(
+        hausdorff_max_by_seq,
+        x_by_seq,
+        output_dir / "all_sequences_hausdorff_max.png",
+    )
+
+    logger.info("Saved plots under %s", output_dir)
+    return output_dir
+
+
+def inspect_synthetic_dataset(
     dataset_name: str = DEFAULT_DATASET_NAME,
     output_dir: Path | None = None,
+    show_progress: bool = True,
 ) -> Path:
-    """Load dataset, compute diff stats, save plots. Returns output directory."""
+    """Load synthetic dataset and run :func:`inspect_dataset`."""
     if not fo.dataset_exists(dataset_name):
         raise ValueError(f"Dataset {dataset_name!r} does not exist")
 
     dataset = fo.load_dataset(dataset_name)
-    if EMBEDDING_FIELD not in dataset.get_field_schema():
-        raise ValueError(
-            f"Dataset {dataset_name!r} has no {EMBEDDING_FIELD!r}; "
-            "run make_synthetic_dataset.py first"
-        )
-
     script_dir = Path(__file__).resolve().parent
     out_root = output_dir or _stats_dir(script_dir)
-    out_root.mkdir(parents=True, exist_ok=True)
-
     sequence_ids = sorted(dataset.distinct("sequence_id"))
-    comparison_stats: Dict[str, Dict[str, np.ndarray]] = {}
-    x_by_seq: Dict[str, np.ndarray] = {}
-
-    for sequence_id in sequence_ids:
-        seq_dir = out_root / sequence_id
-        seq_dir.mkdir(parents=True, exist_ok=True)
-
-        frame_numbers, embeddings = _load_sequence_embeddings(dataset, sequence_id)
-        diffs = _consecutive_diffs(embeddings)
-        x = _diff_x_axis(frame_numbers)
-
-        logger.info(
-            "sequence %s: %d frames, embeddings %s, diffs %s",
-            sequence_id,
-            len(frame_numbers),
-            embeddings.shape,
-            diffs.shape,
-        )
-
-        comparison_stats[sequence_id] = {
-            "mean": _aggregate_stat_curve(diffs, "mean"),
-            "std": _aggregate_stat_curve(diffs, "std"),
-            "l2": _l2_norm_curve(diffs),
-            "cosine": _cosine_distance_curve(embeddings),
-        }
-        x_by_seq[sequence_id] = x
-
-        plot_aggregate_stats(
-            sequence_id, x, diffs, seq_dir / "aggregate_stats.png"
-        )
-        plot_per_channel_stats(
-            sequence_id, x, diffs, seq_dir / "per_channel_stats.png"
-        )
-        plot_l2_and_cosine(
-            sequence_id, x, embeddings, diffs, seq_dir / "l2_and_cosine.png"
-        )
-        plot_mean_abs_heatmaps(
-            sequence_id, x, diffs, seq_dir / "mean_abs_spatial_heatmaps.png"
-        )
-        plot_fraction_above_threshold(
-            sequence_id, x, diffs, seq_dir / "fraction_above_threshold.png"
-        )
-
-    plot_all_sequences_comparison(
-        comparison_stats, x_by_seq, out_root / "all_sequences_comparison.png"
+    return inspect_dataset(
+        dataset,
+        sequence_ids,
+        out_root,
+        show_progress=show_progress,
     )
-
-    logger.info("Saved plots under %s", out_root)
-    return out_root
 
 
 def _parse_args() -> argparse.Namespace:
@@ -494,6 +684,11 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=f"Output folder (default: <plugin>/{STATS_DIR_NAME}/)",
     )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable tqdm progress bars",
+    )
     return parser.parse_args()
 
 
@@ -502,9 +697,10 @@ def main() -> None:
     args = _parse_args()
     out = args.output_dir
     output_dir = Path(out) if out is not None else None
-    saved = inspect_dataset(
+    saved = inspect_synthetic_dataset(
         dataset_name=args.dataset_name,
         output_dir=output_dir,
+        show_progress=not args.no_progress,
     )
     print(f"Plots saved to {saved}")
 

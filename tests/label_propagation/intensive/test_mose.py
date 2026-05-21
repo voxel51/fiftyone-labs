@@ -103,7 +103,9 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
     )
     view.set_values("sam2_propagation_score", scores_eval_detections)
 
-    # with open(f"scores_mose_{sequence_id}_sam2.csv", "w") as f:
+    assert np.mean(scores_eval_detections) > 0.4
+
+    # with open(f"scores_mose_{sequence_id}_{PROPAGATION_METHOD}.csv", "w") as f:
     #     for i, score in enumerate(scores_eval_detections):
     #         f.write(f"{i},{score}\n")
 
