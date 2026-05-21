@@ -113,6 +113,42 @@ def detection_to_abs_box_xyxy(detection, width, height):
     ).astype(np.float32)
 
 
+class SAM2ObjectTracker:
+    """
+    Maps FiftyOne detection labels and indices to
+    SAM2's consecutive 0-indexed obj_ids and back.
+    """
+
+    def __init__(self):
+        self._next_sam2_obj_id = 0
+        self._track_index_to_sam2_obj_id = {}
+        self._sam2_obj_id_to_track_index = {}
+        self._sam2_obj_id_to_label = {}
+
+    def get_or_create_sam2_obj_id(self, track_index):
+        if (
+            track_index is not None
+            and track_index in self._track_index_to_sam2_obj_id
+        ):
+            return self._track_index_to_sam2_obj_id[track_index]
+        obj_id = self._next_sam2_obj_id
+        self._next_sam2_obj_id += 1
+        if track_index is not None:
+            self._track_index_to_sam2_obj_id[track_index] = obj_id
+        return obj_id
+
+    def register(self, track_index, label):
+        obj_id = self.get_or_create_sam2_obj_id(track_index)
+        self._sam2_obj_id_to_label[obj_id] = label
+        self._sam2_obj_id_to_track_index[obj_id] = (
+            track_index if track_index is not None else obj_id
+        )
+        return obj_id
+
+    def index_and_label(self, obj_id):
+        return self._sam2_obj_id_to_track_index[obj_id], self._sam2_obj_id_to_label[obj_id]
+
+
 class SegmentAnything2VideoModelConfig(
     FiftyOneSegmentAnything2VideoModelConfig
 ):
@@ -409,9 +445,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             video_path = (sample, video_reader)
             inference_state = self.model.init_state(video_path)
 
-        classes_obj_id_map = {}
-        kp_idx_obj_id_map = {}
-        current_obj_idx = 0
+        tracker = SAM2ObjectTracker()
 
         for frame_idx, frame_detections in enumerate(self._curr_prompts):
             if (
@@ -421,18 +455,9 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 continue
 
             for detection in frame_detections.detections:
-                if detection.index is not None:
-                    if detection.index in kp_idx_obj_id_map:
-                        ann_obj_id = kp_idx_obj_id_map[detection.index]
-                    else:
-                        ann_obj_id = current_obj_idx
-                        kp_idx_obj_id_map[detection.index] = ann_obj_id
-                        current_obj_idx += 1
-                else:
-                    ann_obj_id = current_obj_idx
-                    current_obj_idx += 1
-
-                classes_obj_id_map[ann_obj_id] = detection.label
+                sam2_obj_id = tracker.register(
+                    detection.index, detection.label
+                )
 
                 box_xyxy = detection_to_abs_box_xyxy(
                     detection, self._curr_frame_width, self._curr_frame_height
@@ -449,14 +474,14 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     _, _, _ = self.model.add_new_mask(
                         inference_state=inference_state,
                         frame_idx=frame_idx,
-                        obj_id=ann_obj_id,
+                        obj_id=sam2_obj_id,
                         mask=mask_array,
                     )
                 else:
                     _, _, _ = self.model.add_new_points_or_box(
                         inference_state=inference_state,
                         frame_idx=frame_idx,
-                        obj_id=ann_obj_id,
+                        obj_id=sam2_obj_id,
                         box=box_xyxy,
                     )
 
@@ -478,7 +503,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             detections = []
 
             for i, out_obj_id in enumerate(out_obj_ids):
-                label = classes_obj_id_map[out_obj_id]
+                index, label = tracker.index_and_label(out_obj_id)
 
                 bounding_box, mask = logits_to_box_and_mask(
                     out_mask_logits[i].cpu().numpy(),
@@ -496,7 +521,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                         mask=mask
                         if self._curr_prompt_type == "masks"
                         else None,
-                        index=out_obj_id,
+                        index=index,
                     )
                 )
 
@@ -518,9 +543,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             video_path = (sample, video_reader)
             inference_state = self.model.init_state(video_path)
 
-        classes_obj_id_map = {}
-        kp_idx_obj_id_map = {}
-        current_obj_idx = 0
+        tracker = SAM2ObjectTracker()
 
         for frame_idx, frame_keypoints in enumerate(self._curr_prompts):
             if (
@@ -530,18 +553,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 continue
 
             for keypoint in frame_keypoints.keypoints:
-                if keypoint.index is not None:
-                    if keypoint.index in kp_idx_obj_id_map:
-                        ann_obj_id = kp_idx_obj_id_map[keypoint.index]
-                    else:
-                        ann_obj_id = current_obj_idx
-                        kp_idx_obj_id_map[keypoint.index] = ann_obj_id
-                        current_obj_idx += 1
-                else:
-                    ann_obj_id = current_obj_idx
-                    current_obj_idx += 1
-
-                classes_obj_id_map[ann_obj_id] = keypoint.label
+                sam2_obj_id = tracker.register(keypoint.index, keypoint.label)
 
                 points, labels = fosam._to_sam_points(
                     keypoint.points,
@@ -553,7 +565,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 _, _, _ = self.model.add_new_points_or_box(
                     inference_state=inference_state,
                     frame_idx=frame_idx,
-                    obj_id=ann_obj_id,
+                    obj_id=sam2_obj_id,
                     points=points,
                     labels=labels,
                 )
@@ -576,7 +588,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             detections = []
 
             for i, out_obj_id in enumerate(out_obj_ids):
-                label = classes_obj_id_map[out_obj_id]
+                index, label = tracker.index_and_label(out_obj_id)
 
                 bounding_box, mask = logits_to_box_and_mask(
                     out_mask_logits[i].cpu().numpy(),
@@ -592,7 +604,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                         label=label,
                         bounding_box=bounding_box,
                         mask=mask,
-                        index=out_obj_id,
+                        index=index,
                     )
                 )
 
