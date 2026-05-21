@@ -105,6 +105,14 @@ def logits_to_box_and_mask(out_mask_logits, frame_width, frame_height):
     return bounding_box, mask
 
 
+def detection_to_abs_box_xyxy(detection, width, height):
+    return np.round(
+        fosam._to_abs_boxes(
+            np.array([detection.bounding_box]), width, height, chunk_size=1
+        ).squeeze(axis=0)
+    ).astype(np.float32)
+
+
 class SegmentAnything2VideoModelConfig(
     FiftyOneSegmentAnything2VideoModelConfig
 ):
@@ -426,15 +434,9 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
                 classes_obj_id_map[ann_obj_id] = detection.label
 
-                box_xyxy = np.round(
-                    fosam._to_abs_boxes(
-                        np.array([detection.bounding_box]),
-                        self._curr_frame_width,
-                        self._curr_frame_height,
-                        chunk_size=1,
-                    ).squeeze(axis=0)
-                ).astype(np.float32)
-
+                box_xyxy = detection_to_abs_box_xyxy(
+                    detection, self._curr_frame_width, self._curr_frame_height
+                )
                 if detection.mask is not None:
                     # Prevent SAM2 from running a segmentation inside the box.
                     # Instead, use the prompted mask directly.

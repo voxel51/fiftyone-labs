@@ -283,6 +283,7 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
     indices = partially_labeled_view.values(
         "labels_test_propagated.detections.index"
     )
+
     assert (
         indices[0] == indices[-1]
     )  # same number of objects in the first and last frames

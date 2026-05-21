@@ -11,12 +11,12 @@ import fiftyone.zoo as foz
 import fiftyone.core.dataset as fod
 import fiftyone.core.labels as fol
 
-import fiftyone.utils.sam as fosam
 from .sam2_local import (
     SegmentAnything2VideoModel,
     SegmentAnything2VideoModelConfig,
     to_abs_mask,
     logits_to_box_and_mask,
+    detection_to_abs_box_xyxy,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,11 +116,13 @@ def iter_image_batches(
     if direction == "forward":
         for start in range(0, n, batch_size - 1):
             chunk_ids = sample_ids[start : start + batch_size]  # type: ignore[index]
-            yield view.select(chunk_ids), (chunk_ids[0] if start > 0 else None)
+            yield view.select(chunk_ids, ordered=True), (
+                chunk_ids[0] if start > 0 else None
+            )
     else:
         for start in range(n - 1, -1, -batch_size + 1):
             chunk_ids = sample_ids[max(start - batch_size + 1, 0) : start + 1]  # type: ignore[index]
-            yield view.select(chunk_ids), (
+            yield view.select(chunk_ids, ordered=True), (
                 chunk_ids[-1] if start < n - 1 else None
             )
 
@@ -130,6 +132,10 @@ def sam2_chunk_direction(
     model: SegmentAnything2VideoModel,
     direction: Literal["forward", "backward"],
 ):
+    """
+    Context manager to set the propagate_in_reverse attribute
+    of the SegmentAnything2VideoModel to the direction of the chunk.
+    """
     had = hasattr(model, "propagate_in_reverse")
     prev = getattr(model, "propagate_in_reverse", False)
     model.propagate_in_reverse = bool(direction == "backward")  # type: ignore[attr-defined]
@@ -140,6 +146,43 @@ def sam2_chunk_direction(
             model.propagate_in_reverse = prev  # type: ignore[attr-defined]
         elif hasattr(model, "propagate_in_reverse"):
             delattr(model, "propagate_in_reverse")
+
+
+def _fuse_bounding_boxes(*boxes_xyxy, width, height):
+    b = np.stack(boxes_xyxy)
+    mn, mx = b[:, :2].min(0), b[:, 2:4].max(0)
+    return [
+        mn[0] / width,
+        mn[1] / height,
+        (mx[0] - mn[0]) / width,
+        (mx[1] - mn[1]) / height,
+    ]
+
+
+def _fuse_nonempty_detections(fdet, bdet, width, height):
+    fbox = detection_to_abs_box_xyxy(fdet, width, height)
+    bbox = detection_to_abs_box_xyxy(bdet, width, height)
+    if fdet.mask is not None and bdet.mask is not None:
+        fused_mask_array = np.maximum(
+            to_abs_mask(fdet.mask, fbox, width, height),
+            to_abs_mask(bdet.mask, bbox, width, height),
+        )
+        fused_box, fused_mask = logits_to_box_and_mask(
+            fused_mask_array, width, height
+        )
+        if fused_box is None:
+            return None
+    else:
+        fused_box = _fuse_bounding_boxes(
+            fbox, bbox, width=width, height=height
+        )
+        fused_mask = None
+    return fol.Detection(
+        label=fdet.label,
+        bounding_box=fused_box,
+        mask=fused_mask,
+        index=fdet.index,
+    )
 
 
 def _fuse_forward_backward_outputs(
@@ -170,98 +213,23 @@ def _fuse_forward_backward_outputs(
     else:
         # match objects of the same index from the forward and backward outputs
         fused_detections = []
-        fdet_indices = [fdet.index for fdet in forward_detections.detections]
-        bdet_indices = [bdet.index for bdet in backward_detections.detections]
-        all_indices = set(fdet_indices) | set(bdet_indices)
-        for index in all_indices:
-            fdet = [
-                detection
-                for detection in forward_detections.detections
-                if detection.index == index
-            ]
-            bdet = [
-                detection
-                for detection in backward_detections.detections
-                if detection.index == index
-            ]
-            if len(fdet) == 0:
-                fused_detections.append(bdet[0])
+        fdet_by_index = {d.index: d for d in forward_detections.detections}
+        bdet_by_index = {d.index: d for d in backward_detections.detections}
+        for index in fdet_by_index.keys() | bdet_by_index.keys():
+            fdet = fdet_by_index.get(index)
+            bdet = bdet_by_index.get(index)
+            if fdet is None:
+                fused_detections.append(bdet)
                 continue
-            elif len(bdet) == 0:
-                fused_detections.append(fdet[0])
+            if bdet is None:
+                fused_detections.append(fdet)
                 continue
 
-            fdet = fdet[0]
-            bdet = bdet[0]
-
-            # get the segmentation mask wrt to the frame boundaries for each object
-
-            fdet_box_xyxy = np.round(
-                fosam._to_abs_boxes(
-                    np.array([fdet.bounding_box]),
-                    sample_width,
-                    sample_height,
-                    chunk_size=1,
-                ).squeeze(axis=0)
-            ).astype(np.float32)
-            bdet_box_xyxy = np.round(
-                fosam._to_abs_boxes(
-                    np.array([bdet.bounding_box]),
-                    sample_width,
-                    sample_height,
-                    chunk_size=1,
-                ).squeeze(axis=0)
-            ).astype(np.float32)
-
-            if (fdet.mask is not None) and (bdet.mask is not None):
-                fdet_mask_array = to_abs_mask(
-                    fdet.mask,
-                    fdet_box_xyxy,
-                    sample_width,
-                    sample_height,
-                )
-                bdet_mask_array = to_abs_mask(
-                    bdet.mask,
-                    bdet_box_xyxy,
-                    sample_width,
-                    sample_height,
-                )
-
-                # pick the max of each pixel in the forward and backward masks
-                fused_mask_array = np.maximum(fdet_mask_array, bdet_mask_array)
-
-                # create a new detection from the new mask
-                fused_box, fused_mask = logits_to_box_and_mask(
-                    fused_mask_array,
-                    sample_width,
-                    sample_height,
-                )
-                if fused_box is None:
-                    continue
-
-            else:
-                fused_box_xyxy = [
-                    min(fdet_box_xyxy[0], bdet_box_xyxy[0]),
-                    min(fdet_box_xyxy[1], bdet_box_xyxy[1]),
-                    max(fdet_box_xyxy[2], bdet_box_xyxy[2]),
-                    max(fdet_box_xyxy[3], bdet_box_xyxy[3]),
-                ]
-                fused_box = [
-                    fused_box_xyxy[0] / sample_width,
-                    fused_box_xyxy[1] / sample_height,
-                    (fused_box_xyxy[2] - fused_box_xyxy[0]) / sample_width,
-                    (fused_box_xyxy[3] - fused_box_xyxy[1]) / sample_height,
-                ]
-                fused_mask = None
-
-            fused_detections.append(
-                fol.Detection(
-                    label=fdet.label,
-                    bounding_box=fused_box,
-                    mask=fused_mask,
-                    index=fdet.index,
-                )
+            fused = _fuse_nonempty_detections(
+                fdet, bdet, sample_width, sample_height
             )
+            if fused is not None:
+                fused_detections.append(fused)
 
     sample.set_field(output_field, fol.Detections(detections=fused_detections))
     sample.save()
