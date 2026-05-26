@@ -268,12 +268,31 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
 
     # TODO(neeraja): add evaluation [in a follow-up PR]
 
-    indices = partially_labeled_view.values(
+    input_indices = partially_labeled_view.values(
+        "labels_test.detections.index"
+    )
+    input_indices = set(
+        [
+            ii
+            for sublist in input_indices
+            if sublist is not None
+            for ii in sublist
+        ]
+    )
+
+    output_indices = partially_labeled_view.values(
         "labels_test_propagated.detections.index"
     )
-    assert (
-        indices[0] == indices[-1]
-    )  # same number of objects in the first and last frames
+    output_indices = set(
+        [
+            ii
+            for sublist in output_indices
+            if sublist is not None
+            for ii in sublist
+        ]
+    )
+
+    assert input_indices == output_indices
 
 
 def test_propagate_labels_video(partially_labeled_video_dataset_view):

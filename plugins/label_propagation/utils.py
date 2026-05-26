@@ -58,7 +58,8 @@ def get_detections_fields(ds: fo.Dataset) -> dict:
     return {
         name: field
         for name, field in schema.items()
-        if hasattr(field, "document_type") and field.document_type is fo.Detections
+        if hasattr(field, "document_type")
+        and field.document_type is fo.Detections
     }
 
 
