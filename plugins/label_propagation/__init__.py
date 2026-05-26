@@ -353,6 +353,14 @@ class PropagateLabels(foo.Operator):
             required=False,
         )
 
+        inputs.bool(
+            "propagate_bidirectionally",
+            label="Propagate bidirectionally",
+            description="Run forward and backward SAM2 passes and fuse outputs.",
+            default=True,
+            required=False,
+        )
+
         return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
@@ -375,6 +383,9 @@ class PropagateLabels(foo.Operator):
         propagation_method = ctx.params.get("propagation_method")
         sort_field = ctx.params.get("sort_field", None)
         batch_size = ctx.params.get("batch_size", 32)
+        propagate_bidirectionally = ctx.params.get(
+            "propagate_bidirectionally", True
+        )
 
         try:
             if propagation_method == "sam2":
@@ -385,6 +396,7 @@ class PropagateLabels(foo.Operator):
                     sort_field=sort_field,
                     batch_size=batch_size,
                     progress=True,
+                    bidirectional=propagate_bidirectionally,
                 )
             else:
                 raise RuntimeError(

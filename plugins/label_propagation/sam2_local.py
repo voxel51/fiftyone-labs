@@ -41,7 +41,7 @@ smip = fou.lazy_import("sam2.sam2_image_predictor")
 smutil = fou.lazy_import("sam2.utils.misc")
 
 
-def _to_abs_mask(mask, abs_box, img_width, img_height):
+def to_abs_mask(mask, abs_box, img_width, img_height):
     """
     Args:
         mask: numpy array relative to box
@@ -102,6 +102,50 @@ class SAM2ObjectTracker:
             self._sam2_obj_id_to_track_index[obj_id],
             self._sam2_obj_id_to_label[obj_id],
         )
+
+
+def logits_to_box_and_mask(out_mask_logits, frame_width, frame_height):
+    """
+    Args:
+        out_mask_logits: numpy array of shape (H, W) or (1, H, W)
+            where H, W are dimensions of the whole image
+        frame_width: width of the frame
+        frame_height: height of the frame
+
+    Returns:
+        bounding_box: list of [x1, y1, w, h]
+        mask: numpy array of shape (h, w)
+    """
+    if len(out_mask_logits.shape) == 3:
+        mask = np.squeeze((out_mask_logits > 0.0), axis=0)
+    else:
+        mask = out_mask_logits > 0.0
+
+    box = fosam._mask_to_box(mask)
+    if box is None:
+        return None, None
+
+    x1, y1, x2, y2 = box
+    bounding_box = [
+        x1 / frame_width,
+        y1 / frame_height,
+        (x2 - x1) / frame_width,
+        (y2 - y1) / frame_height,
+    ]
+    mask = mask[
+        int(round(y1)) : int(round(y2)),
+        int(round(x1)) : int(round(x2)),
+    ]
+
+    return bounding_box, mask
+
+
+def detection_to_abs_box_xyxy(detection, width, height):
+    return np.round(
+        fosam._to_abs_boxes(
+            np.array([detection.bounding_box]), width, height, chunk_size=1
+        ).squeeze(axis=0)
+    ).astype(np.float32)
 
 
 class SegmentAnything2VideoModelConfig(
@@ -347,7 +391,11 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
             if isinstance(value, fol.Detections):
                 detections = cast(Iterable[fol.Detection], value.detections)
-                if any(det.mask is not None for det in detections):
+                if detections is None:
+                    continue
+                if (len(detections) == 0) or (
+                    any(det.mask is not None for det in detections)
+                ):
                     return "masks"
 
                 return "boxes"
@@ -410,20 +458,16 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     detection.index, detection.label
                 )
 
-                box_xyxy = fosam._to_abs_boxes(
-                    np.array([detection.bounding_box]),
-                    self._curr_frame_width,
-                    self._curr_frame_height,
-                    chunk_size=1,
+                box_xyxy = detection_to_abs_box_xyxy(
+                    detection, self._curr_frame_width, self._curr_frame_height
                 )
-                box = np.round(box_xyxy.squeeze(axis=0)).astype(np.float32)
 
                 if detection.mask is not None:
                     # Prevent SAM2 from running a segmentation inside the box.
                     # Instead, use the prompted mask directly.
-                    mask_array = _to_abs_mask(
+                    mask_array = to_abs_mask(
                         detection.mask,
-                        box,
+                        box_xyxy,
                         self._curr_frame_width,
                         self._curr_frame_height,
                     )
@@ -438,7 +482,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                         inference_state=inference_state,
                         frame_idx=frame_idx,
                         obj_id=sam2_obj_id,
-                        box=box,
+                        box=box_xyxy,
                     )
 
         sample_detections = {}
@@ -446,32 +490,28 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             out_frame_idx,
             out_obj_ids,
             out_mask_logits,
-        ) in self.model.propagate_in_video(inference_state):
+        ) in self.model.propagate_in_video(
+            inference_state,
+            reverse=(reverse := getattr(self, "propagate_in_reverse", False))
+            and inference_state["num_frames"] > 1,
+            start_frame_idx=(
+                inference_state["num_frames"] - 1
+                if reverse and inference_state["num_frames"] > 1
+                else None
+            ),
+        ):
             detections = []
 
             for i, out_obj_id in enumerate(out_obj_ids):
                 index, label = tracker.index_and_label(out_obj_id)
 
-                mask = np.squeeze(
-                    (out_mask_logits[i] > 0.0).cpu().numpy(), axis=0
+                bounding_box, mask = logits_to_box_and_mask(
+                    out_mask_logits[i].cpu().numpy(),
+                    self._curr_frame_width,
+                    self._curr_frame_height,
                 )
-                box = fosam._mask_to_box(mask)
-                if box is None:
+                if bounding_box is None:
                     continue
-
-                x1, y1, x2, y2 = box
-
-                bounding_box = [
-                    x1 / self._curr_frame_width,
-                    y1 / self._curr_frame_height,
-                    (x2 - x1) / self._curr_frame_width,
-                    (y2 - y1) / self._curr_frame_height,
-                ]
-
-                mask = mask[
-                    int(round(y1)) : int(round(y2)),
-                    int(round(x1)) : int(round(x2)),
-                ]
 
                 detections.append(
                     fol.Detection(
@@ -534,32 +574,28 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             out_frame_idx,
             out_obj_ids,
             out_mask_logits,
-        ) in self.model.propagate_in_video(inference_state):
+        ) in self.model.propagate_in_video(
+            inference_state,
+            reverse=(reverse := getattr(self, "propagate_in_reverse", False))
+            and inference_state["num_frames"] > 1,
+            start_frame_idx=(
+                inference_state["num_frames"] - 1
+                if reverse and inference_state["num_frames"] > 1
+                else None
+            ),
+        ):
             detections = []
 
             for i, out_obj_id in enumerate(out_obj_ids):
                 index, label = tracker.index_and_label(out_obj_id)
 
-                mask = np.squeeze(
-                    (out_mask_logits[i] > 0.0).cpu().numpy(), axis=0
+                bounding_box, mask = logits_to_box_and_mask(
+                    out_mask_logits[i].cpu().numpy(),
+                    self._curr_frame_width,
+                    self._curr_frame_height,
                 )
-                box = fosam._mask_to_box(mask)
-                if box is None:
+                if bounding_box is None:
                     continue
-
-                x1, y1, x2, y2 = box
-
-                bounding_box = [
-                    x1 / self._curr_frame_width,
-                    y1 / self._curr_frame_height,
-                    (x2 - x1) / self._curr_frame_width,
-                    (y2 - y1) / self._curr_frame_height,
-                ]
-
-                mask = mask[
-                    int(round(y1)) : int(round(y2)),
-                    int(round(x1)) : int(round(x2)),
-                ]
 
                 detections.append(
                     fol.Detection(
