@@ -81,9 +81,8 @@ def prepare_sequence(
     from ``ground_truth`` (same as test: only the first frame by default).
     """
     _ensure_detection_field(dataset, LABEL_FIELD)
-    seq_view = (
-        dataset.match(F("sequence_id") == sequence_id)
-        .sort_by(FRAME_SORT_FIELD)
+    seq_view = dataset.match(F("sequence_id") == sequence_id).sort_by(
+        FRAME_SORT_FIELD
     )
     n = len(seq_view)
     for idx in label_idxs:
@@ -92,7 +91,6 @@ def prepare_sequence(
                 f"LABEL_IDXS contains {idx}, but sequence {sequence_id!r} "
                 f"has only {n} frames (0..{n - 1})"
             )
-
 
     for idx in label_idxs:
         exemplar = seq_view.skip(idx).first()
@@ -124,7 +122,9 @@ def propagate_sequence(dataset: fo.Dataset, seq_view: fo.DatasetView) -> None:
             "batch_size": PROPAGATION_BATCH_SIZE,
         },
     }
-    result = foo.execute_operator("@51labs/label_propagation/propagate_labels", ctx)
+    result = foo.execute_operator(
+        "@51labs/label_propagation/propagate_labels", ctx
+    )
     logger.info(
         "Propagated %r: %s",
         seq_view.first()["sequence_id"],
@@ -187,7 +187,9 @@ def score_mose_dataset(
         raise ValueError(f"Dataset missing {GT_FIELD!r}")
 
     sequence_ids = _resolve_sequence_ids(dataset)
-    logger.info("Processing %d sequence(s): %s", len(sequence_ids), sequence_ids)
+    logger.info(
+        "Processing %d sequence(s): %s", len(sequence_ids), sequence_ids
+    )
 
     sequence_iter = sequence_ids
     if show_progress:
@@ -242,9 +244,8 @@ def main() -> None:
     print(f"  propagation sort_field: {FRAME_SORT_FIELD}")
 
     for sequence_id in _resolve_sequence_ids(dataset):
-        seq_view = (
-            dataset.match(F("sequence_id") == sequence_id)
-            .sort_by(FRAME_SORT_FIELD)
+        seq_view = dataset.match(F("sequence_id") == sequence_id).sort_by(
+            FRAME_SORT_FIELD
         )
         scores = seq_view.values(SCORE_FIELD)
         mean_score = float(np.mean(scores))

@@ -70,7 +70,9 @@ PER_CHANNEL_FORMULAS = {
 
 L2_GLOBAL_FORMULA = r"\|\Delta x\|_2 = \sqrt{\sum_{d,h,w}(\Delta x)_{dhw}^2}"
 
-L2_PER_CHANNEL_FORMULA = r"\|\Delta x\|_{2,d} = \sqrt{\sum_{h,w}(\Delta x)_{dhw}^2}"
+L2_PER_CHANNEL_FORMULA = (
+    r"\|\Delta x\|_{2,d} = \sqrt{\sum_{h,w}(\Delta x)_{dhw}^2}"
+)
 
 COSINE_DISTANCE_FORMULA = (
     r"1 - \frac{\sum_{d,h,w} x_{i,dhw}\, x_{i+1,dhw}}"
@@ -79,9 +81,7 @@ COSINE_DISTANCE_FORMULA = (
 
 MEAN_ABS_SPATIAL_FORMULA = r"\frac{1}{D}\sum_{d}\left|(\Delta x)_{dhw}\right|"
 
-FRACTION_ABOVE_FORMULA = (
-    r"\frac{1}{DHW}\sum_{d,h,w}\mathbf{1}\!\left[\left|(\Delta x)_{dhw}\right|>\tau\right]"
-)
+FRACTION_ABOVE_FORMULA = r"\frac{1}{DHW}\sum_{d,h,w}\mathbf{1}\!\left[\left|(\Delta x)_{dhw}\right|>\tau\right]"
 
 HAUSDORFF_MAP_FORMULA = (
     r"d_{hw}=\min_{h',w'\in\mathcal{N}(h,w)}"
@@ -216,7 +216,9 @@ def plot_per_channel_stats(
     out_path: Path,
 ) -> None:
     n_stats = len(STAT_NAMES)
-    fig, axes = plt.subplots(n_stats, 1, figsize=(10, 3.4 * n_stats), sharex=True)
+    fig, axes = plt.subplots(
+        n_stats, 1, figsize=(10, 3.4 * n_stats), sharex=True
+    )
     if n_stats == 1:
         axes = [axes]
 
@@ -284,8 +286,7 @@ def plot_l2_and_cosine(
     )
     _set_ylabel_with_formula(ax_l2, L2_GLOBAL_FORMULA, short="L2")
     ax_l2.set_title(
-        f"{sequence_id}: diff L2 norm\n"
-        f"faint: ${L2_PER_CHANNEL_FORMULA}$",
+        f"{sequence_id}: diff L2 norm\n" f"faint: ${L2_PER_CHANNEL_FORMULA}$",
         fontsize=10,
     )
     ax_l2.legend(fontsize=8, loc="upper right")
@@ -300,8 +301,12 @@ def plot_l2_and_cosine(
         label=f"${COSINE_DISTANCE_FORMULA}$",
     )
     ax_cos.set_xlabel(X_LABEL)
-    _set_ylabel_with_formula(ax_cos, COSINE_DISTANCE_FORMULA, short="cosine dist.")
-    ax_cos.set_title(r"Embedding cosine distance ($x_i$ vs. $x_{i+1}$)", fontsize=10)
+    _set_ylabel_with_formula(
+        ax_cos, COSINE_DISTANCE_FORMULA, short="cosine dist."
+    )
+    ax_cos.set_title(
+        r"Embedding cosine distance ($x_i$ vs. $x_{i+1}$)", fontsize=10
+    )
     ax_cos.legend(fontsize=8, loc="upper right")
     ax_cos.grid(True, alpha=0.3)
 
@@ -484,9 +489,7 @@ def plot_fraction_above_threshold(
         )
     ax.set_xlabel(X_LABEL)
     _set_ylabel_with_formula(ax, FRACTION_ABOVE_FORMULA, short="fraction")
-    ax.set_title(
-        rf"{sequence_id}: fraction of large $|\Delta x|_{{dhw}}$"
-    )
+    ax.set_title(rf"{sequence_id}: fraction of large $|\Delta x|_{{dhw}}$")
     _add_notation_caption(fig, y=1.02)
     ax.legend(fontsize=7)
     ax.grid(True, alpha=0.3)
@@ -578,7 +581,9 @@ def inspect_sequence_embeddings(
         "hausdorff_max": hausdorff_max,
     }
 
-    plot_aggregate_stats(sequence_id, x, diffs, out_dir / "aggregate_stats.png")
+    plot_aggregate_stats(
+        sequence_id, x, diffs, out_dir / "aggregate_stats.png"
+    )
     plot_per_channel_stats(
         sequence_id, x, diffs, out_dir / "per_channel_stats.png"
     )
@@ -624,7 +629,9 @@ def inspect_dataset(
 
     for sequence_id in sequence_iter:
         seq_dir = output_dir / str(sequence_id)
-        frame_numbers, embeddings = _load_sequence_embeddings(dataset, sequence_id)
+        frame_numbers, embeddings = _load_sequence_embeddings(
+            dataset, sequence_id
+        )
         stats, x = inspect_sequence_embeddings(
             sequence_id,
             frame_numbers,

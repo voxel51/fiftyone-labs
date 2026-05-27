@@ -116,7 +116,9 @@ def _circle_bounding_box(cx: int, cy: int, radius: int) -> List[float]:
     ]
 
 
-def ground_truth_for_frame(sequence_id: str, frame_number: int) -> fo.Detections:
+def ground_truth_for_frame(
+    sequence_id: str, frame_number: int
+) -> fo.Detections:
     """Build ground-truth detections for one frame."""
     position = _circle_position(sequence_id, frame_number)
     if position is None:
@@ -164,13 +166,21 @@ def render_sequence_frame(sequence_id: str, frame_number: int) -> Image.Image:
     position = _circle_position(sequence_id, frame_number)
     if position is not None:
         cx, cy = position
-        _draw_circle(draw, cx, cy, CIRCLE_RADIUS, _circle_color(sequence_id, frame_number))
+        _draw_circle(
+            draw,
+            cx,
+            cy,
+            CIRCLE_RADIUS,
+            _circle_color(sequence_id, frame_number),
+        )
 
     if sequence_id == "partly_occlude":
         circle_left = CENTER_X - CIRCLE_RADIUS
         start_bar_left = circle_left - OCCLUDER_WIDTH - OCCLUDER_STEP_PX
         bar_left = start_bar_left + frame_number * OCCLUDER_STEP_PX
-        _draw_vertical_bar(draw, bar_left, OCCLUDER_WIDTH, IMAGE_SIZE, OCCLUDER_RGB)
+        _draw_vertical_bar(
+            draw, bar_left, OCCLUDER_WIDTH, IMAGE_SIZE, OCCLUDER_RGB
+        )
 
     return img
 
@@ -191,7 +201,9 @@ def write_sequence_images(output_dir: str) -> List[dict]:
                     "filepath": filepath,
                     "sequence_id": sequence_id,
                     "frame_number": frame_number,
-                    "ground_truth": ground_truth_for_frame(sequence_id, frame_number),
+                    "ground_truth": ground_truth_for_frame(
+                        sequence_id, frame_number
+                    ),
                 }
             )
     return sample_infos

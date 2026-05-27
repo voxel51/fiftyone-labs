@@ -27,6 +27,7 @@ from label_propagation.embedding_utils import (  # type: ignore
 
 PROPAGATION_METHOD = "sam2"
 
+
 @pytest.fixture(params=[6, 10])
 def image_dataset_view(request):
     dataset = foz.load_zoo_dataset(

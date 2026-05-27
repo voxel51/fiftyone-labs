@@ -77,9 +77,8 @@ def setup_seed_labels(
     sequence_ids = dataset.distinct("sequence_id")
 
     for sequence_id in sequence_ids:
-        seq_view = (
-            dataset.match(F("sequence_id") == sequence_id)
-            .sort_by(SORT_FIELD)
+        seq_view = dataset.match(F("sequence_id") == sequence_id).sort_by(
+            SORT_FIELD
         )
         samples = list(seq_view)
         n = len(samples)
@@ -114,8 +113,8 @@ def propagate_sequence(
     propagated_field: str,
 ) -> None:
     """Run SAM2 propagation for one sequence via the plugin operator."""
-    seq_view = (
-        dataset.match(F("sequence_id") == sequence_id).sort_by(SORT_FIELD)
+    seq_view = dataset.match(F("sequence_id") == sequence_id).sort_by(
+        SORT_FIELD
     )
     add_detection_field_if_not_exists(dataset, propagated_field)
 
@@ -130,7 +129,9 @@ def propagate_sequence(
             "batch_size": PROPAGATION_BATCH_SIZE,
         },
     }
-    result = foo.execute_operator("@51labs/label_propagation/propagate_labels", ctx)
+    result = foo.execute_operator(
+        "@51labs/label_propagation/propagate_labels", ctx
+    )
     logger.info(
         "Propagated sequence %r: %s",
         sequence_id,
@@ -149,8 +150,8 @@ def score_propagation(
 
     all_scores: List[float] = []
     for sequence_id in sorted(dataset.distinct("sequence_id")):
-        seq_view = (
-            dataset.match(F("sequence_id") == sequence_id).sort_by(SORT_FIELD)
+        seq_view = dataset.match(F("sequence_id") == sequence_id).sort_by(
+            SORT_FIELD
         )
         seq_scores = evaluate_detections(
             seq_view,
