@@ -29,10 +29,18 @@ if str(_PLUGINS_DIR) not in sys.path:
 from label_propagation.embedding_utils import (  # type: ignore
     consecutive_asymmetric_hausdorff_max,
     get_sam2_embeddings,
+    cycle_consistency_error,
+    many_one_collapse_score,
+    local_topology_distortion,
+    pairwise_metric,
 )
 from label_propagation.propagation import add_detection_field_if_not_exists  # type: ignore
 from label_propagation.suc_utils import evaluate_detections  # type: ignore
 
+
+consecutive_cycle_consistency_error = pairwise_metric(cycle_consistency_error)
+consecutive_many_one_collapse_score = pairwise_metric(many_one_collapse_score)
+consecutive_local_topology_distortion = pairwise_metric(local_topology_distortion)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +64,9 @@ EXEMPLAR_METHODS: List[str] = [
     "random_2",
     "random_3",
     "hausdorff_delta",
+    "cycle_consistency",
+    "many_one_collapse",
+    "local_topology_distortion",
 ]
 
 
@@ -122,7 +133,7 @@ def select_exemplar_indices(
             idxs = np.linspace(0, n_frames, N_EXEMPLARS + 1, dtype=int)[:-1]
             return sorted([int(i) for i in np.unique(idxs)])
 
-    if method.startswith("random_"):
+    elif method.startswith("random_"):
         seed = int(method.split("_", 1)[1])
         rng = np.random.default_rng(seed)
         if PROPAGATE_BIDIRECTIONALLY:
@@ -132,25 +143,62 @@ def select_exemplar_indices(
             chosen = rng.choice(np.arange(1, n_frames), size=N_EXEMPLARS-1, replace=False)
             return [0] + sorted(int(i) for i in chosen)
 
-    if method == "hausdorff_delta":
+    elif method == "hausdorff_delta":
         if embeddings is None:
             raise ValueError("hausdorff_delta requires precomputed embeddings")
+        
         # Max patchwise diff between frame i and i-1; exclude frame 0.
-        deltas = consecutive_asymmetric_hausdorff_max(
+        deltas = consecutive_cycle_consistency_error(
             embeddings,
-            show_progress=False,
+            # show_progress=False,
         )
-        print("\n\nconsecutive asymmetric hausdorff deltas")
+        print("\n\nconsecutive cycle consistency error deltas")
         print(deltas)
-        frame_indices = np.arange(1, n_frames)
-        if PROPAGATE_BIDIRECTIONALLY:
-            top = np.argpartition(-deltas, N_EXEMPLARS - 1)[:N_EXEMPLARS]
-            return sorted(int(frame_indices[i]) for i in top)
-        else:
-            top = np.argpartition(-deltas, N_EXEMPLARS - 1)[:N_EXEMPLARS-1]
-            return [0] + sorted(int(frame_indices[i]) for i in top)
 
-    raise ValueError(f"Unknown exemplar method: {method!r}")
+    elif method == "cycle_consistency":
+        if embeddings is None:
+            raise ValueError("cycle_consistency requires precomputed embeddings")
+        
+        # Max patchwise diff between frame i and i-1; exclude frame 0.
+        deltas = consecutive_cycle_consistency_error(
+            embeddings,
+            # show_progress=False,
+        )
+        print("\n\nconsecutive cycle consistency error deltas")
+        print(deltas)
+        
+    elif method == "many_one_collapse":
+        if embeddings is None:
+            raise ValueError("many_one_collapse requires precomputed embeddings")
+        
+        deltas = consecutive_many_one_collapse_score(
+            embeddings,
+            # show_progress=False,
+        )
+        print("\n\nconsecutive many one collapse score deltas")
+        print(deltas)
+    
+    elif method == "local_topology_distortion":
+        if embeddings is None:
+            raise ValueError("local_topology_distortion requires precomputed embeddings")
+        
+        deltas = consecutive_local_topology_distortion(
+            embeddings,
+            # show_progress=False,
+        )
+        print("\n\nconsecutive local topology distortion deltas")
+        print(deltas)
+        
+    else:
+        raise ValueError(f"Unknown exemplar method: {method!r}")
+    
+    frame_indices = np.arange(1, n_frames)
+    if PROPAGATE_BIDIRECTIONALLY:
+        top = np.argpartition(-deltas, N_EXEMPLARS - 1)[:N_EXEMPLARS]
+        return sorted(int(frame_indices[i]) for i in top)
+    else:
+        top = np.argpartition(-deltas, N_EXEMPLARS - 1)[:N_EXEMPLARS-1]
+        return [0] + sorted(int(frame_indices[i]) for i in top)
 
 
 def prepare_sequence(
@@ -251,7 +299,10 @@ def main() -> None:
         n_frames = len(sequence_view)
 
         embeddings: Optional[np.ndarray] = None
-        if "hausdorff_delta" in methods:
+        
+        if any(method in [
+            "hausdorff_delta", "cycle_consistency", "many_one_collapse", "local_topology_distortion"
+        ] for method in methods):
             if not args.skip_embeddings:
                 compute_embeddings_sequence(sequence_view)
             embeddings = _load_sequence_embeddings(sequence_view)

@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import Dict, List, Optional
+from functools import wraps
 
 import numpy as np
 
@@ -310,3 +311,263 @@ def consecutive_asymmetric_hausdorff_max(
         progress_desc=progress_desc,
     )
     return np.max(maps, axis=(1, 2))
+
+
+import torch
+import torch.nn.functional as F
+
+
+def _prep(z, device=None, dtype=torch.float32):
+    z = torch.as_tensor(z, dtype=dtype, device=device)
+    if z.ndim != 3:
+        raise ValueError("Expected image embedding shape [C,H,W].")
+    z = F.normalize(z, dim=0)
+    return z
+
+
+def _coords_grid(H, W, device):
+    y, x = torch.meshgrid(
+        torch.arange(H, device=device),
+        torch.arange(W, device=device),
+        indexing="ij"
+    )
+    return torch.stack([y, x], dim=-1).float()  # [H,W,2]
+
+
+def _local_similarity(z1, z2, radius=8):
+    """
+    z1, z2: [C,H,W], normalized.
+    Returns:
+        sim: [H,W,K] similarity from each z1 location to local z2 window
+        offsets: [K,2] dy,dx offsets
+    """
+    C, H, W = z1.shape
+    pad = radius
+    Kside = 2 * radius + 1
+
+    z2_pad = F.pad(z2[None], (pad, pad, pad, pad), mode="replicate")
+    patches = F.unfold(z2_pad, kernel_size=Kside)  # [1, C*K, H*W]
+    patches = patches.view(C, Kside * Kside, H, W).permute(2, 3, 1, 0)  # [H,W,K,C]
+
+    z1_hw = z1.permute(1, 2, 0)[:, :, None, :]  # [H,W,1,C]
+    sim = (z1_hw * patches).sum(dim=-1)  # [H,W,K]
+
+    offsets = []
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            offsets.append([dy, dx])
+    offsets = torch.tensor(offsets, device=z1.device).float()
+
+    return sim, offsets
+
+
+def modified_asymmetric_hausdorff(
+    image_emb_1,
+    image_emb_2,
+    radius=8,
+    percentile=95,
+    distance="cosine",
+):
+    """
+    For every patch in image_emb_2, find closest local patch in image_emb_1.
+    Then return high-percentile min-distance.
+
+    Larger = image_emb_2 contains locally novel patches not well covered by image_emb_1.
+
+    Note: this is image2 -> image1 asymmetric.
+    """
+    device = image_emb_1.device if torch.is_tensor(image_emb_1) else None
+    z1 = _prep(image_emb_1, device=device)
+    z2 = _prep(image_emb_2, device=z1.device)
+
+    # For image2 -> image1, swap order in local similarity.
+    sim, _ = _local_similarity(z2, z1, radius=radius)
+    best_sim = sim.max(dim=-1).values  # [H,W]
+
+    if distance == "cosine":
+        min_dist = 1.0 - best_sim
+    elif distance == "euclidean_normalized":
+        min_dist = torch.sqrt(torch.clamp(2.0 - 2.0 * best_sim, min=0.0))
+    else:
+        raise ValueError("distance must be 'cosine' or 'euclidean_normalized'.")
+
+    return torch.quantile(min_dist.flatten(), percentile / 100.0).item()
+
+
+def cycle_consistency_error(
+    image_emb_1,
+    image_emb_2,
+    radius=8,
+    normalize_by_radius=True,
+):
+    """
+    Match frame1 -> frame2 locally, then frame2 -> frame1 locally.
+    Measures whether points return to themselves.
+
+    Larger = worse local correspondence stability.
+    """
+    device = image_emb_1.device if torch.is_tensor(image_emb_1) else None
+    z1 = _prep(image_emb_1, device=device)
+    z2 = _prep(image_emb_2, device=z1.device)
+
+    C, H, W = z1.shape
+    coords = _coords_grid(H, W, z1.device)
+
+    sim12, offsets = _local_similarity(z1, z2, radius=radius)
+    idx12 = sim12.argmax(dim=-1)  # [H,W]
+    off12 = offsets[idx12]        # [H,W,2]
+    q = coords + off12
+
+    # Clamp matched coordinates.
+    qy = q[..., 0].round().long().clamp(0, H - 1)
+    qx = q[..., 1].round().long().clamp(0, W - 1)
+
+    # Now match z2(q) back to local z1 neighborhoods around q.
+    # Simpler implementation: compute z2 -> z1 local match for every z2 point.
+    sim21, offsets21 = _local_similarity(z2, z1, radius=radius)
+    idx21 = sim21.argmax(dim=-1)
+    off21 = offsets21[idx21]  # [H,W,2]
+
+    p_back = q + off21[qy, qx]
+    err = torch.norm(p_back - coords, dim=-1)
+
+    if normalize_by_radius:
+        err = err / max(radius, 1)
+
+    return err.mean().item()
+
+
+def many_one_collapse_score(
+    image_emb_1,
+    image_emb_2,
+    radius=8,
+):
+    """
+    Frame1 locations choose best local match in frame2.
+    If many frame1 locations collapse onto the same frame2 location, score increases.
+
+    Larger = more many-to-one collapse, usually bad for propagation.
+    """
+    device = image_emb_1.device if torch.is_tensor(image_emb_1) else None
+    z1 = _prep(image_emb_1, device=device)
+    z2 = _prep(image_emb_2, device=z1.device)
+
+    C, H, W = z1.shape
+    coords = _coords_grid(H, W, z1.device)
+
+    sim, offsets = _local_similarity(z1, z2, radius=radius)
+    idx = sim.argmax(dim=-1)
+    q = coords + offsets[idx]
+
+    qy = q[..., 0].round().long().clamp(0, H - 1)
+    qx = q[..., 1].round().long().clamp(0, W - 1)
+    q_flat = qy * W + qx
+
+    counts = torch.bincount(q_flat.flatten(), minlength=H * W).float()
+    counts = counts / counts.sum()
+
+    # Simple concentration score: Herfindahl index.
+    # Uniform mapping gives ~1/(HW); collapse gives larger values.
+    hhi = (counts ** 2).sum()
+
+    # Normalize approximately to [0,1].
+    uniform = 1.0 / (H * W)
+    score = (hhi - uniform) / (1.0 - uniform)
+
+    return score.item()
+
+
+def local_topology_distortion(
+    image_emb_1,
+    image_emb_2,
+    radius=8,
+    neighbor_radius=1,
+    normalize_by_radius=True,
+):
+    """
+    Checks whether nearby points in frame1 remain nearby after matching into frame2.
+
+    Larger = local neighborhoods are distorted, folded, merged, or torn.
+    """
+    device = image_emb_1.device if torch.is_tensor(image_emb_1) else None
+    z1 = _prep(image_emb_1, device=device)
+    z2 = _prep(image_emb_2, device=z1.device)
+
+    C, H, W = z1.shape
+    coords = _coords_grid(H, W, z1.device)
+
+    sim, offsets = _local_similarity(z1, z2, radius=radius)
+    idx = sim.argmax(dim=-1)
+    q = coords + offsets[idx]  # matched coordinates in frame2
+
+    distortions = []
+
+    for dy in range(-neighbor_radius, neighbor_radius + 1):
+        for dx in range(-neighbor_radius, neighbor_radius + 1):
+            if dy == 0 and dx == 0:
+                continue
+
+            y0a = max(0, -dy)
+            y0b = min(H, H - dy)
+            x0a = max(0, -dx)
+            x0b = min(W, W - dx)
+
+            p1 = coords[y0a:y0b, x0a:x0b]
+            p2 = coords[y0a + dy:y0b + dy, x0a + dx:x0b + dx]
+
+            q1 = q[y0a:y0b, x0a:x0b]
+            q2 = q[y0a + dy:y0b + dy, x0a + dx:x0b + dx]
+
+            d_before = torch.norm(p2 - p1, dim=-1)
+            d_after = torch.norm(q2 - q1, dim=-1)
+
+            distortions.append(torch.abs(d_after - d_before))
+
+    distortion = torch.cat([d.flatten() for d in distortions]).mean()
+
+    if normalize_by_radius:
+        distortion = distortion / max(radius, 1)
+
+    return distortion.item()
+
+
+def pairwise_metric(metric_fn):
+    """
+    Decorator/meta-function.
+
+    Takes a metric:
+        metric_fn(image_emb_1, image_emb_2, **kwargs) -> float
+
+    Returns a function:
+        fn(embeddings, **kwargs) -> np.ndarray of shape [n-1]
+
+    where:
+        embeddings[i] is the embedding for frame i.
+    """
+
+    @wraps(metric_fn)
+    def apply_pairwise(embeddings: np.ndarray, **kwargs) -> np.ndarray:
+        embeddings = np.asarray(embeddings)
+
+        if embeddings.ndim < 2:
+            raise ValueError(
+                "Expected embeddings with shape [n_frames, ...]."
+            )
+
+        n = embeddings.shape[0]
+
+        if n < 2:
+            return np.array([], dtype=float)
+
+        scores = np.empty(n - 1, dtype=float)
+
+        for i in range(n - 1):
+            scores[i] = metric_fn(
+                embeddings[i],
+                embeddings[i + 1],
+                **kwargs
+            )
+
+        return scores
+
+    return apply_pairwise
