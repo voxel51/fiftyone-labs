@@ -15,6 +15,7 @@ import logging
 import sys
 from pathlib import Path
 from typing import List, Optional, Sequence
+import csv
 
 import fiftyone as fo
 import fiftyone.operators as foo
@@ -45,7 +46,7 @@ consecutive_local_topology_distortion = pairwise_metric(local_topology_distortio
 logger = logging.getLogger(__name__)
 
 # ``None`` = all sequences; or indices into ``sorted(dataset.distinct("sequence_id"))``
-SEQUENCE_ID_INDICES: Optional[List[int]] = [6, 10]
+SEQUENCE_ID_INDICES: Optional[List[int]] = [10]
 
 MOSE_ZOO_URL = "https://github.com/voxel51/mose-v2"
 MOSE_SPLIT = "train"
@@ -57,6 +58,8 @@ GT_FIELD = "ground_truth"
 LABEL_FIELD = "labels_test"
 PROPAGATED_FIELD = "labels_test_propagated"
 EMBEDDING_FIELD = "sam2_backbone_embeddings"
+CSV_FILE_PREFIX = "scores_fwd_"
+
 
 EXEMPLAR_METHODS: List[str] = [
     "equally_spaced",
@@ -67,6 +70,10 @@ EXEMPLAR_METHODS: List[str] = [
     "cycle_consistency",
     "many_one_collapse",
     "local_topology_distortion",
+    # baselines
+    "first_frame_only",
+    "alternate_frames",
+    "custom"
 ]
 
 
@@ -123,6 +130,14 @@ def select_exemplar_indices(
 
     ``hausdorff_delta`` requires ``embeddings`` of shape ``(N, D, H, W)``.
     """
+    if method == "first_frame_only":
+        return [0]
+    elif method == "alternate_frames":
+        return list(range(0, n_frames, 2))
+    elif method == "custom":
+        # return [0, 9, 18]  # seq 6
+        return [0, 12, 21, 31, 37, 45, 53, 69]  # seq 10
+
     N_EXEMPLARS = max(1, n_frames // 10)
 
     if method == "equally_spaced":
@@ -261,11 +276,20 @@ def score_sequence(seq_view: fo.DatasetView, method: str) -> None:
     )
 
     sequence_id = seq_view.first()["sequence_id"]
-    log_path = Path(f"scores_{sequence_id}_{method}.log")
-    with log_path.open("w") as f:
-        for i, score in enumerate(scores):
-            f.write(f"{i},{score}\n")
-    logger.info("Wrote %s (%d frames)", log_path, len(scores))
+
+    # # write to .log file
+    # log_path = Path(f"scores_{sequence_id}_{method}.log")
+    # with log_path.open("w") as f:
+    #     for i, score in enumerate(scores):
+    #         f.write(f"{i},{score}\n")
+    # logger.info("Wrote %s (%d frames)", log_path, len(scores))
+    
+    # write to .csv file
+    csv_path = Path(f"{CSV_FILE_PREFIX}{sequence_id}.csv")
+    with csv_path.open("a") as f:
+        writer = csv.writer(f)
+        writer.writerow([method, *scores])
+    logger.info("Appended to %s", csv_path)
 
 
 def main() -> None:
@@ -327,7 +351,7 @@ def main() -> None:
             )
             prepare_sequence(sequence_view, label_idxs)
             propagate_sequence(dataset, sequence_view)
-            score_sequence(sequence_view, method)
+            score_sequence(sequence_view, f"{method}_{len(label_idxs)}ex")
 
 
 def _parse_args() -> argparse.Namespace:
