@@ -276,6 +276,7 @@ def test_propagate_labels_image(request, partially_labeled_view_fixture):
             "labels_test_propagated.detections"
         )
     ]
+
     assert np.min(areas) > 0.35
 
     # TODO(neeraja): add evaluation [in a follow-up PR]

@@ -115,6 +115,13 @@ def partially_labeled_video_dataset_view(video_dataset_view):
             fo.EmbeddedDocumentField,
             embedded_doc_type=fo.Detections,
         )
+    if (
+        "labels_test_propagated"
+        in video_dataset_view._dataset.get_frame_field_schema()
+    ):
+        video_dataset_view._dataset.delete_frame_field(
+            "labels_test_propagated", error_level=2
+        )
     (
         video_dataset_view.match_frames(F("frame_number") > 1)
         .set_field("frames.labels_test", fo.Detections(detections=[]))
@@ -167,3 +174,39 @@ def test_propagate_labels_image(partially_labeled_image_dataset_view):
     assert (
         indices[0] == indices[-1]
     )  # same number of objects in the first and last frames
+
+
+def test_propagate_labels_video(
+    partially_labeled_video_dataset_view,
+):
+    ctx = {
+        "dataset": partially_labeled_video_dataset_view._dataset,
+        "view": partially_labeled_video_dataset_view,
+        "params": {
+            "input_annotation_field": "frames.labels_test",
+            "output_annotation_field": "frames.labels_test_propagated",
+            "propagation_method": "sam2",
+            "sort_field": "frames.frame_number",
+            "propagate_bidirectionally": False,
+        },
+    }
+    result = foo.execute_operator(
+        "@51labs/label_propagation/propagate_labels", ctx
+    )
+    print(result.result["message"])  # type: ignore[index]
+
+    detection_area = (
+        lambda det: (det.bounding_box[2] * det.bounding_box[3])
+        if det.bounding_box is not None
+        else 0
+    )
+
+    for vid_props in partially_labeled_video_dataset_view.values(
+        "frames.labels_test_propagated.detections"
+    ):
+        assert all(frame_props is not None for frame_props in vid_props)
+        areas = [
+            sum([detection_area(det) for det in frame_props])
+            for frame_props in vid_props
+        ]
+        assert np.min(areas) > 0.05
