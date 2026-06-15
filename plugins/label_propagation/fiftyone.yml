@@ -1,6 +1,6 @@
 name: "@51labs/label_propagation"
 description: Propagating Labels across frames of a video
-version: 1.1.1
+version: 1.2.0.m1-rc.0
 fiftyone:
   version: ">=1.14.1"
 url: https://github.com/voxel51/labs/tree/main/plugins/label_propagation
@@ -9,5 +9,6 @@ operators:
   - temporal_segmentation
   - select_exemplars
   - propagate_labels
+  - propagate_labels_m1
 panels:
   - label_propagation

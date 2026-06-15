@@ -23,6 +23,7 @@ from .exemplars import (
 from .propagation import (
     SUPPORTED_PROPAGATION_METHODS,
     propagate_annotations_sam2,
+    propagate_annotations_sam2_m1_video_annotation,
 )
 from .panel import LabelPropagationPanel
 
@@ -428,8 +429,196 @@ class PropagateLabels(foo.Operator):
         }
 
 
+class PropagateLabelsM1(foo.Operator):
+    version = "1.0.0"
+
+    @property
+    def config(self) -> foo.OperatorConfig:
+        return foo.OperatorConfig(
+            name="propagate_labels_m1",
+            label="Propagate Single Label (M1)",
+            description="Propagate one label in-place over a 1-indexed frame range",
+            light_icon="/assets/labs_icon_light.svg",
+            dark_icon="/assets/labs_icon_dark.svg",
+            dynamic=True,
+            allow_immediate_execution=True,
+            allow_delegated_execution=True,
+        )
+
+    def _sorted_view(self, view, sort_field):
+        if sort_field and view.has_field(sort_field):
+            return view.sort_by(sort_field)
+        return view
+
+    def _propagation_view(self, view, sort_field):
+        if view.media_type == "group":
+            view = view.flatten()
+        return self._sorted_view(view, sort_field)
+
+    def _max_frame_count(self, view, sort_field):
+        sorted_view = self._propagation_view(view, sort_field)
+        if sorted_view.media_type == "video":
+            return max(len(s.frames) for s in sorted_view)
+        return len(sorted_view)
+
+    def validate_input(self, ctx) -> bool:
+        annotation_field = ctx.params.get("annotation_field", None)
+        if annotation_field is None:
+            logger.warning(
+                "Annotation field is not provided. Please provide a field name."
+            )
+            return False
+
+        schema = get_frame_schema(ctx.target_view())
+        if annotation_field not in schema:
+            logger.warning(
+                f"Annotation field '{annotation_field}' not found in the dataset. "
+                f"Please ensure the field exists and contains annotations."
+            )
+            return False
+
+        start_frame_number = ctx.params.get("start_frame_number")
+        end_frame_number = ctx.params.get("end_frame_number")
+        if start_frame_number is None or end_frame_number is None:
+            logger.warning(
+                "start_frame_number and end_frame_number are required."
+            )
+            return False
+
+        if start_frame_number < 1:
+            logger.warning("start_frame_number must be >= 1 (1-indexed).")
+            return False
+
+        if end_frame_number < start_frame_number:
+            logger.warning(
+                "end_frame_number must be >= start_frame_number (both 1-indexed)."
+            )
+            return False
+
+        sort_field = ctx.params.get("sort_field", None)
+        max_frames = self._max_frame_count(ctx.target_view(), sort_field)
+        if end_frame_number > max_frames:
+            logger.warning(
+                f"end_frame_number ({end_frame_number}) exceeds the number of "
+                f"frames ({max_frames}) in the sorted sequence."
+            )
+            return False
+
+        return True
+
+    def resolve_input(self, ctx) -> types.Property:
+        inputs = types.Object()
+        inputs.view_target(ctx)
+
+        schema = get_frame_schema(ctx.target_view())
+        field_choices = [types.Choice(label=f, value=f) for f in schema.keys()]
+
+        detections_schema = get_detections_fields(ctx.target_view())
+        detections_choices = [
+            types.Choice(label=f, value=f) for f in detections_schema.keys()
+        ]
+
+        inputs.str(
+            "annotation_field",
+            label="Annotation Field",
+            description="Field to read prompts from and write propagated labels into",
+            view=types.AutocompleteView(choices=detections_choices)
+            if detections_choices
+            else None,
+            required=True,
+        )
+
+        inputs.int(
+            "label_index",
+            label="Label Index",
+            description="Index of the single detection to propagate",
+            required=True,
+        )
+
+        inputs.int(
+            "start_frame_number",
+            label="Start Frame Number",
+            description="1-indexed position in the sorted frame sequence (inclusive start)",
+            min=1,
+            required=True,
+        )
+
+        inputs.int(
+            "end_frame_number",
+            label="End Frame Number",
+            description="1-indexed position in the sorted frame sequence (inclusive end)",
+            min=1,
+            required=True,
+        )
+
+        inputs.str(
+            "sort_field",
+            label="Field to Sort Samples by",
+            description="Optional. For video, omit to use FiftyOne's natural 1-based frame order",
+            view=types.AutocompleteView(choices=field_choices)
+            if field_choices
+            else None,
+            required=False,
+        )
+
+        return types.Property(inputs)
+
+    def execute(self, ctx) -> dict:
+        if not self.validate_input(ctx):
+            return {
+                "message": "Validation failed",
+                "samples_processed": 0,
+            }
+
+        view = ctx.target_view()
+        total_samples = len(view)
+        annotation_field = ctx.params.get("annotation_field")
+        label_index = ctx.params.get("label_index")
+        start_frame_number = ctx.params.get("start_frame_number")
+        end_frame_number = ctx.params.get("end_frame_number")
+        sort_field = ctx.params.get("sort_field", None)
+
+        try:
+            _ = propagate_annotations_sam2_m1_video_annotation(
+                view=view,
+                annotation_field=annotation_field,
+                label_index=label_index,
+                start_frame_number=start_frame_number,
+                end_frame_number=end_frame_number,
+                sort_field=sort_field,
+                progress=True,
+            )
+            if view.media_type == "video":
+                with auth_context():
+                    foul.index_to_instance(view, annotation_field)
+
+        except (RuntimeError, ValueError) as e:
+            error_msg = str(e)
+            logger.error(error_msg)
+            ctx.ops.notify(
+                error_msg,
+                variant="error",
+            )
+            return {
+                "message": error_msg,
+                "samples_processed": 0,
+            }
+
+        if not ctx.delegated:
+            ctx.ops.reload_dataset()
+
+        return {
+            "message": (
+                f"Label {label_index} propagated in '{annotation_field}' "
+                f"for frames {start_frame_number}-{end_frame_number}"
+            ),
+            "samples_processed": total_samples,
+        }
+
+
 def register(p):
     p.register(TemporalSegmentation)
     p.register(SelectExemplars)
     p.register(PropagateLabels)
+    p.register(PropagateLabelsM1)
     p.register(LabelPropagationPanel)

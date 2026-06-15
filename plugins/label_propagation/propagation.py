@@ -203,7 +203,13 @@ def _fuse_forward_backward_outputs(
         or (forward_detections.detections is None)
         or (len(forward_detections.detections) == 0)
     ):
-        fused_detections = backward_detections.detections
+        if (
+            backward_detections is None
+            or backward_detections.detections is None
+        ):
+            fused_detections = []
+        else:
+            fused_detections = backward_detections.detections
     elif (
         (backward_detections is None)
         or (backward_detections.detections is None)
@@ -277,6 +283,95 @@ def _copy_forward_outputs_video_sample(
         frame.set_field(
             output_field, deepcopy(frame.get_field(forward_output_field))
         )
+
+
+def _detections_for_label_index(
+    detections: Optional[fol.Detections], label_index: int
+) -> fol.Detections:
+    if detections is None or detections.detections is None:
+        return fol.Detections()
+    filtered = [d for d in detections.detections if d.index == label_index]
+    return fol.Detections(detections=filtered)
+
+
+def _merge_propagated_into_existing(
+    existing: Optional[fol.Detections],
+    propagated: Optional[fol.Detections],
+    label_index: int,
+) -> fol.Detections:
+    by_index = {}
+    if existing is not None and existing.detections is not None:
+        by_index = {d.index: d for d in existing.detections}
+    if propagated is not None and propagated.detections is not None:
+        for det in propagated.detections:
+            if det.index == label_index:
+                by_index[label_index] = det
+    return fol.Detections(detections=list(by_index.values()))
+
+
+def _sorted_view(
+    view: fo.DatasetView, sort_field: Optional[str]
+) -> fo.DatasetView:
+    if sort_field and view.has_field(sort_field):
+        return view.sort_by(sort_field)
+    return view
+
+
+def _merge_m1_image_sample(
+    sample: fo.Sample,
+    fused_field: str,
+    annotation_field: str,
+    label_index: int,
+) -> None:
+    existing = sample.get_field(annotation_field)
+    propagated = sample.get_field(fused_field)
+    sample.set_field(
+        annotation_field,
+        _merge_propagated_into_existing(existing, propagated, label_index),
+    )
+    sample.save()
+
+
+def _populate_video_temp_prompt_field(
+    sample: fo.Sample,
+    annotation_field: str,
+    temp_prompt_field: str,
+    label_index: int,
+) -> None:
+    for frame in sample.frames.values():
+        frame.set_field(
+            temp_prompt_field,
+            _detections_for_label_index(
+                frame.get_field(annotation_field), label_index
+            ),
+        )
+    sample.save()
+
+
+def _merge_m1_video_sample(
+    sample: fo.Sample,
+    fused_field: str,
+    annotation_field: str,
+    label_index: int,
+    start_frame_number: int,
+    end_frame_number: int,
+) -> None:
+    frame_keys = sorted(sample.frames.keys())
+    selected_keys = set(
+        frame_keys[start_frame_number - 1 : end_frame_number]
+    )
+    for fn, frame in sample.frames.items():
+        if fn not in selected_keys:
+            continue
+        existing = frame.get_field(annotation_field)
+        propagated = frame.get_field(fused_field)
+        frame.set_field(
+            annotation_field,
+            _merge_propagated_into_existing(
+                existing, propagated, label_index
+            ),
+        )
+    sample.save()
 
 
 def propagate_annotations_sam2(
@@ -498,6 +593,227 @@ def propagate_annotations_sam2(
             temp_input_annotation_field_bwd,
             temp_output_field_fwd,
             temp_output_field_bwd,
+        ):
+            delete_field_if_exists(view._dataset, fn)
+
+    return {}
+
+
+def propagate_annotations_sam2_m1_video_annotation(
+    view: Union[fo.Dataset, fo.DatasetView],
+    annotation_field: str,
+    label_index: int,
+    start_frame_number: int,
+    end_frame_number: int,
+    sort_field: Optional[str] = None,
+    progress: Optional[bool] = True,
+) -> dict[str, float]:
+    """
+    Propagate a single label in-place over a 1-indexed frame range (bidirectional, no batching).
+
+    Args:
+        view: The view to propagate annotations from
+        annotation_field: The field name of the annotation to propagate (read and write)
+        label_index: The index of the label to propagate
+        start_frame_number: 1-indexed position of the first frame in the sorted sequence
+            (inclusive)
+        end_frame_number: 1-indexed position of the last frame in the sorted sequence
+            (inclusive). For image/dynamic-grouped datasets, use sort_field when available
+            to determine order. For video without sort_field, uses FiftyOne's natural
+            1-based frame order per sample.
+        sort_field: Field to sort samples by (images) or optional sample sort (video)
+        progress: Whether to show progress bars (True/False) or use default (None)
+
+        Note: batch_size is not supported (all frames in range at once).
+        bidirectional is always True.
+    """
+    if start_frame_number < 1:
+        raise ValueError("start_frame_number must be >= 1 (1-indexed)")
+    if end_frame_number < start_frame_number:
+        raise ValueError(
+            "end_frame_number must be >= start_frame_number (both 1-indexed)"
+        )
+
+    media_mode = str(view.media_type)
+    if media_mode == "group":
+        view = view.flatten()
+        media_mode = "image"
+
+    model = load_local_sam2(media_mode=media_mode)
+
+    field_name = get_frame_field_name(annotation_field, media_mode)
+    add_detection_field_if_not_exists(view._dataset, field_name)
+
+    sorted_view = _sorted_view(view, sort_field)
+    random_suffix = os.urandom(12).hex()
+
+    temp_prompt_field = f"{field_name}_{random_suffix}_prompt"
+    temp_output_field_fwd = f"{field_name}_{random_suffix}_fwd"
+    temp_output_field_bwd = f"{field_name}_{random_suffix}_bwd"
+    temp_output_field_fused = f"{field_name}_{random_suffix}_fused"
+
+    add_detection_field_if_not_exists(view._dataset, temp_prompt_field)
+    add_detection_field_if_not_exists(view._dataset, temp_output_field_fwd)
+    add_detection_field_if_not_exists(view._dataset, temp_output_field_bwd)
+    add_detection_field_if_not_exists(view._dataset, temp_output_field_fused)
+
+    if media_mode == "video":
+        first_sample = sorted_view.first()
+        n_frames = len(first_sample.frames)
+        if end_frame_number > n_frames:
+            raise ValueError(
+                f"end_frame_number ({end_frame_number}) exceeds the number of "
+                f"frames ({n_frames}) in the video"
+            )
+
+        _prompt_kw = dict(
+            annotation_field=field_name,
+            temp_prompt_field=temp_prompt_field,
+            label_index=label_index,
+        )
+        for _ in sorted_view.map_samples(
+            partial(_populate_video_temp_prompt_field, **_prompt_kw),
+            save=True,
+            progress=progress,
+            num_workers=1,
+        ):
+            pass
+
+        video_batch_size = len(sorted_view)
+        try:
+            with sam2_chunk_direction(model, "forward"):
+                sorted_view.apply_model(
+                    model,
+                    label_field=temp_output_field_fwd,
+                    prompt_field=f"frames.{temp_prompt_field}",
+                    batch_size=video_batch_size,
+                    progress=progress,
+                    skip_failures=False,
+                )
+            with sam2_chunk_direction(model, "backward"):
+                sorted_view.apply_model(
+                    model,
+                    label_field=temp_output_field_bwd,
+                    prompt_field=f"frames.{temp_prompt_field}",
+                    batch_size=video_batch_size,
+                    progress=progress,
+                    skip_failures=False,
+                )
+            _fuse_kw = dict(
+                forward_output_field=temp_output_field_fwd,
+                backward_output_field=temp_output_field_bwd,
+                output_field=temp_output_field_fused,
+                sample_width=model._curr_frame_width,
+                sample_height=model._curr_frame_height,
+            )
+            for _ in sorted_view.map_samples(
+                partial(
+                    _fuse_forward_backward_outputs_video_sample, **_fuse_kw
+                ),
+                save=True,
+                progress=progress,
+                num_workers=1,
+            ):
+                pass
+
+            _merge_kw = dict(
+                fused_field=temp_output_field_fused,
+                annotation_field=field_name,
+                label_index=label_index,
+                start_frame_number=start_frame_number,
+                end_frame_number=end_frame_number,
+            )
+            for _ in sorted_view.map_samples(
+                partial(_merge_m1_video_sample, **_merge_kw),
+                save=True,
+                progress=progress,
+                num_workers=1,
+            ):
+                pass
+        finally:
+            for fn in (
+                temp_prompt_field,
+                temp_output_field_fwd,
+                temp_output_field_bwd,
+                temp_output_field_fused,
+            ):
+                delete_field_if_exists(view._dataset, fn)
+        return {}
+
+    # Image / flattened group: slice the sorted sample sequence
+    n = len(sorted_view)
+    if end_frame_number > n:
+        raise ValueError(
+            f"end_frame_number ({end_frame_number}) exceeds the number of "
+            f"samples ({n}) in the sorted view"
+        )
+
+    slice_view = sorted_view[
+        (start_frame_number - 1) : end_frame_number
+    ]
+    batch_size = len(slice_view)
+
+    slice_view.set_values(
+        temp_prompt_field,
+        [
+            _detections_for_label_index(d, label_index)
+            for d in slice_view.values(field_name)
+        ],
+    )
+
+    try:
+        with sam2_chunk_direction(model, "forward"):
+            slice_view.apply_model(
+                model,
+                label_field=temp_output_field_fwd,
+                prompt_field=temp_prompt_field,
+                batch_size=batch_size,
+                progress=progress,
+                skip_failures=False,
+            )
+        with sam2_chunk_direction(model, "backward"):
+            slice_view.apply_model(
+                model,
+                label_field=temp_output_field_bwd,
+                prompt_field=temp_prompt_field,
+                batch_size=batch_size,
+                progress=progress,
+                skip_failures=False,
+            )
+
+        _fuse_kw = dict(
+            forward_output_field=temp_output_field_fwd,
+            backward_output_field=temp_output_field_bwd,
+            output_field=temp_output_field_fused,
+            sample_width=model._curr_frame_width,
+            sample_height=model._curr_frame_height,
+        )
+        for _ in slice_view.map_samples(
+            partial(_fuse_forward_backward_outputs, **_fuse_kw),
+            save=True,
+            progress=progress,
+            num_workers=1,
+        ):
+            pass
+
+        _merge_kw = dict(
+            fused_field=temp_output_field_fused,
+            annotation_field=field_name,
+            label_index=label_index,
+        )
+        for _ in slice_view.map_samples(
+            partial(_merge_m1_image_sample, **_merge_kw),
+            save=True,
+            progress=progress,
+            num_workers=1,
+        ):
+            pass
+    finally:
+        for fn in (
+            temp_prompt_field,
+            temp_output_field_fwd,
+            temp_output_field_bwd,
+            temp_output_field_fused,
         ):
             delete_field_if_exists(view._dataset, fn)
 
