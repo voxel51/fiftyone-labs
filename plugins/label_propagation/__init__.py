@@ -617,8 +617,8 @@ class PropagateLabelsM1(foo.Operator):
 
 
 def register(p):
-    p.register(TemporalSegmentation)
-    p.register(SelectExemplars)
-    p.register(PropagateLabels)
+    # p.register(TemporalSegmentation)
+    # p.register(SelectExemplars)
+    # p.register(PropagateLabels)
     p.register(PropagateLabelsM1)
-    p.register(LabelPropagationPanel)
+    # p.register(LabelPropagationPanel)
