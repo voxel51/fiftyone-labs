@@ -257,13 +257,26 @@ def _fuse_forward_backward_outputs_video_sample(
         )
 
 
-def _copy_detections_field_to_field(
+def _copy_forward_outputs(
     sample: fo.Sample,
-    src_field: str,
-    dst_field: str,
+    forward_output_field: str,
+    output_field: str,
 ) -> None:
-    sample.set_field(dst_field, sample.get_field(src_field))
+    sample.set_field(
+        output_field, deepcopy(sample.get_field(forward_output_field))
+    )
     sample.save()
+
+
+def _copy_forward_outputs_video_sample(
+    sample: fo.Sample,
+    forward_output_field: str,
+    output_field: str,
+) -> None:
+    for frame in sample.frames.values():
+        frame.set_field(
+            output_field, deepcopy(frame.get_field(forward_output_field))
+        )
 
 
 def propagate_annotations_sam2(
@@ -357,10 +370,17 @@ def propagate_annotations_sam2(
                 ):
                     pass
             else:
-                run_view.set_values(
-                    output_field, run_view.values(temp_output_field_fwd)
-                )
-                run_view.save()
+                for _ in run_view.map_samples(
+                    partial(
+                        _copy_forward_outputs_video_sample,
+                        forward_output_field=temp_output_field_fwd,
+                        output_field=output_field,
+                    ),
+                    save=True,
+                    progress=progress,
+                    num_workers=1,
+                ):
+                    pass
         finally:
             for fn in (
                 temp_output_field_fwd,
@@ -463,9 +483,9 @@ def propagate_annotations_sam2(
         else:
             for _ in run_view.map_samples(
                 partial(
-                    _copy_detections_field_to_field,
-                    src_field=temp_output_field_fwd,
-                    dst_field=output_field,
+                    _copy_forward_outputs,
+                    forward_output_field=temp_output_field_fwd,
+                    output_field=output_field,
                 ),
                 save=True,
                 progress=progress,

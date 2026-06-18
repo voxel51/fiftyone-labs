@@ -214,11 +214,9 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         self._curr_frame_height = None
 
     def _patch_sam2_memory_dtype_handling(self):
-        # On non-CUDA devices, some SAM2 code paths store memory tensors in
-        # bfloat16, which can later collide with float32 projection weights.
-        # Keep these memory tensors as float32 to avoid matmul dtype mismatch.
-        if self._device.type == "cuda":
-            return
+        # Some SAM2 code paths store memory tensors in bfloat16 (e.g. on CUDA
+        # GPUs with bf16-default matmul or on MPS/CPU), which collides with
+        # float32 projection weights. Keep memory tensors as float32.
 
         run_single = getattr(self.model, "_run_single_frame_inference", None)
         if callable(run_single):
