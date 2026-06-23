@@ -26,22 +26,47 @@ from .sam2_local import (
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_PROPAGATION_METHODS = [
-    "sam2",
+SAM2_PROPAGATION_METHODS = [
+    "sam2_tiny",
+    "sam2_base",
+    "sam2_large",
 ]
 
-_SAM2_ZOO_MODEL_NAME = "segment-anything-2-hiera-tiny-video-torch"
-_SAM2_LOCAL_MODEL_CACHE: dict[str, Any] = {}
+SUPPORTED_PROPAGATION_METHODS = SAM2_PROPAGATION_METHODS
+
+_SAM2_ZOO_MODELS = {
+    "sam2_tiny": "segment-anything-2-hiera-tiny-video-torch",
+    "sam2_base": "segment-anything-2-hiera-base-plus-video-torch",
+    "sam2_large": "segment-anything-2-hiera-large-video-torch",
+}
+
+_SAM2_LOCAL_MODEL_CACHE: dict[tuple[str, str], Any] = {}
 
 
-def load_local_sam2(media_mode: str):
-    if media_mode in _SAM2_LOCAL_MODEL_CACHE:
-        return _SAM2_LOCAL_MODEL_CACHE[media_mode]
+def _resolve_sam2_propagation_method(propagation_method: str) -> str:
+    if propagation_method == "sam2":
+        return "sam2_tiny"
+    if propagation_method not in _SAM2_ZOO_MODELS:
+        raise ValueError(
+            f"Unsupported SAM2 propagation method '{propagation_method}'. "
+            f"Choose from: {list(_SAM2_ZOO_MODELS.keys())}"
+        )
+    return propagation_method
 
+
+def load_local_sam2(
+    media_mode: str, propagation_method: str = "sam2_tiny"
+):
+    propagation_method = _resolve_sam2_propagation_method(propagation_method)
+    cache_key = (media_mode, propagation_method)
+    if cache_key in _SAM2_LOCAL_MODEL_CACHE:
+        return _SAM2_LOCAL_MODEL_CACHE[cache_key]
+
+    zoo_model_name = _SAM2_ZOO_MODELS[propagation_method]
     foz.ensure_zoo_model_requirements(
-        _SAM2_ZOO_MODEL_NAME, error_level=None, log_success=False
+        zoo_model_name, error_level=None, log_success=False
     )
-    zoo_model, model_path = foz.download_zoo_model(_SAM2_ZOO_MODEL_NAME)
+    zoo_model, model_path = foz.download_zoo_model(zoo_model_name)
 
     config_dict = deepcopy(zoo_model.default_deployment_config_dict)
     inner = config_dict.setdefault("config", {})
@@ -53,7 +78,7 @@ def load_local_sam2(media_mode: str):
 
     config = SegmentAnything2VideoModelConfig(inner)
     model = SegmentAnything2VideoModel(config)
-    _SAM2_LOCAL_MODEL_CACHE[media_mode] = model
+    _SAM2_LOCAL_MODEL_CACHE[cache_key] = model
 
     return model
 
@@ -424,6 +449,7 @@ def propagate_annotations_sam2(
     batch_size: int = 32,
     progress: Optional[bool] = True,
     bidirectional: bool = True,
+    propagation_method: str = "sam2_tiny",
 ) -> dict[str, float]:
     """
     Propagate annotations from exemplar frames (containing labels in input_annotation_field) to all the frames.
@@ -440,7 +466,9 @@ def propagate_annotations_sam2(
         view = view.flatten()
         media_mode = "image"
 
-    model = load_local_sam2(media_mode=media_mode)
+    model = load_local_sam2(
+        media_mode=media_mode, propagation_method=propagation_method
+    )
 
     output_field = get_frame_field_name(output_annotation_field, media_mode)
     # Explicitly register the output field in the schema (needed for Teams)
@@ -687,6 +715,7 @@ def propagate_annotations_sam2_m1_video_annotation(
     end_frame_number: int,
     sort_field: Optional[str] = None,
     progress: Optional[bool] = True,
+    propagation_method: str = "sam2_tiny",
 ) -> dict[str, float]:
     """
     Propagate labels in-place over a 1-indexed frame range (bidirectional, no batching).
@@ -721,7 +750,9 @@ def propagate_annotations_sam2_m1_video_annotation(
         view = view.flatten()
         media_mode = "image"
 
-    model = load_local_sam2(media_mode=media_mode)
+    model = load_local_sam2(
+        media_mode=media_mode, propagation_method=propagation_method
+    )
 
     field_name = get_frame_field_name(annotation_field, media_mode)
     add_detection_field_if_not_exists(view._dataset, field_name)
@@ -909,3 +940,4 @@ def propagate_annotations_sam2_m1_video_annotation(
     return _log_benchmark_stats(
         t0, _ram_before, _proc, model, n_samples, n_frames
     )
+

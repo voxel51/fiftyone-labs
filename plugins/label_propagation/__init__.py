@@ -403,19 +403,21 @@ class PropagateLabels(foo.Operator):
 
         try:
             if propagation_method == "sam2":
-                _ = propagate_annotations_sam2(
-                    view=view,
-                    input_annotation_field=input_annotation_field,
-                    output_annotation_field=output_annotation_field,
-                    sort_field=sort_field,
-                    batch_size=batch_size,
-                    progress=True,
-                    bidirectional=propagate_bidirectionally,
-                )
-            else:
+                propagation_method = "sam2_tiny"
+            if propagation_method not in SUPPORTED_PROPAGATION_METHODS:
                 raise RuntimeError(
                     f"Unsupported propagation method '{propagation_method}'"
                 )
+            _ = propagate_annotations_sam2(
+                view=view,
+                input_annotation_field=input_annotation_field,
+                output_annotation_field=output_annotation_field,
+                sort_field=sort_field,
+                batch_size=batch_size,
+                progress=True,
+                bidirectional=propagate_bidirectionally,
+                propagation_method=propagation_method,
+            )
             if view.media_type == "video":
                 # instances keyed by (id, label, index); not common for image datasets
                 with auth_context():
@@ -581,6 +583,19 @@ class PropagateLabelsM1(foo.Operator):
             required=False,
         )
 
+        propagation_method_dropdown = types.Dropdown()
+        for choice in SUPPORTED_PROPAGATION_METHODS:
+            propagation_method_dropdown.add_choice(choice, label=choice)
+
+        inputs.enum(
+            "propagation_method",
+            propagation_method_dropdown.values(),
+            default=SUPPORTED_PROPAGATION_METHODS[0],
+            label="Propagation Method",
+            view=propagation_method_dropdown,
+            required=False,
+        )
+
         return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
@@ -597,6 +612,9 @@ class PropagateLabelsM1(foo.Operator):
         start_frame_number = ctx.params.get("start_frame_number")
         end_frame_number = ctx.params.get("end_frame_number")
         sort_field = ctx.params.get("sort_field", None)
+        propagation_method = ctx.params.get(
+            "propagation_method", SUPPORTED_PROPAGATION_METHODS[0]
+        )
 
         try:
             _ = propagate_annotations_sam2_m1_video_annotation(
@@ -607,6 +625,7 @@ class PropagateLabelsM1(foo.Operator):
                 end_frame_number=end_frame_number,
                 sort_field=sort_field,
                 progress=True,
+                propagation_method=propagation_method,
             )
             if view.media_type == "video":
                 with auth_context():
