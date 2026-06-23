@@ -222,7 +222,7 @@ def test_propagate_labels_m1_image(
     _assert_propagated_indices(output_indices, tracked)
 
 
-@pytest.mark.parametrize("label_indices", ["0", "0,1"])
+@pytest.mark.parametrize("label_indices", ["1", "0,1"])
 def test_propagate_labels_m1_video(
     partially_labeled_video_dataset_view, label_indices
 ):

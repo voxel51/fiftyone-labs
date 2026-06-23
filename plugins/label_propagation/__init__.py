@@ -581,6 +581,17 @@ class PropagateLabelsM1(foo.Operator):
             required=False,
         )
 
+        inputs.bool(
+            "cache_view",
+            label="Cache View",
+            description=(
+                "Reuse SAM2 frame tensors and backbone features across repeated "
+                "propagation runs on the same view. Disable if source frames have "
+                "changed on disk since the last run."
+            ),
+            default=True,
+        )
+
         return types.Property(inputs)
 
     def execute(self, ctx) -> dict:
@@ -597,6 +608,7 @@ class PropagateLabelsM1(foo.Operator):
         start_frame_number = ctx.params.get("start_frame_number")
         end_frame_number = ctx.params.get("end_frame_number")
         sort_field = ctx.params.get("sort_field", None)
+        cache_view = ctx.params.get("cache_view", True)
 
         try:
             _ = propagate_annotations_sam2_m1_video_annotation(
@@ -607,6 +619,7 @@ class PropagateLabelsM1(foo.Operator):
                 end_frame_number=end_frame_number,
                 sort_field=sort_field,
                 progress=True,
+                cache_view=cache_view,
             )
             if view.media_type == "video":
                 with auth_context():

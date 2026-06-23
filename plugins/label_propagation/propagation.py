@@ -609,6 +609,7 @@ def propagate_annotations_sam2_m1_video_annotation(
     end_frame_number: int,
     sort_field: Optional[str] = None,
     progress: Optional[bool] = True,
+    cache_view: bool = True,
 ) -> dict[str, float]:
     """
     Propagate labels in-place over a 1-indexed frame range (bidirectional, no batching).
@@ -628,6 +629,11 @@ def propagate_annotations_sam2_m1_video_annotation(
 
         Note: batch_size is not supported (all frames in range at once).
         bidirectional is always True.
+        cache_view: If True (default), cache the SAM2 inference_state (loaded frame
+            tensors) and backbone (ViT) features keyed by the view's sample
+            IDs+filepaths.  Subsequent calls on the same view skip frame loading and
+            ViT encoding, which are the two most expensive steps. Set to False to
+            always start fresh (e.g. after modifying source frames on disk).
     """
     if not label_indices:
         raise ValueError("label_indices must contain at least one index")
@@ -649,6 +655,20 @@ def propagate_annotations_sam2_m1_video_annotation(
     add_detection_field_if_not_exists(view._dataset, field_name)
 
     sorted_view = _sorted_view(view, sort_field)
+
+    if cache_view:
+        sample_ids = sorted_view.values("id")
+        filepaths = sorted_view.values("filepath")
+        parts = [f"{sid}:{fp}" for sid, fp in zip(sample_ids, filepaths)]
+        if media_mode == "image":
+            # Image mode calls init_state on just the slice [start:end], not
+            # the full view. Include the frame range so different slices don't
+            # share the same inference_state (which would contain wrong images).
+            parts.append(f"slice:{start_frame_number}-{end_frame_number}")
+        model._view_cache_key = SegmentAnything2VideoModel._compute_view_cache_key(parts)
+    else:
+        model._view_cache_key = None
+
     random_suffix = os.urandom(12).hex()
 
     temp_prompt_field = f"{field_name}_{random_suffix}_prompt"
@@ -731,6 +751,7 @@ def propagate_annotations_sam2_m1_video_annotation(
             ):
                 pass
         finally:
+            model._view_cache_key = None
             for fn in (
                 temp_prompt_field,
                 temp_output_field_fwd,
@@ -805,6 +826,7 @@ def propagate_annotations_sam2_m1_video_annotation(
         ):
             pass
     finally:
+        model._view_cache_key = None
         for fn in (
             temp_prompt_field,
             temp_output_field_fwd,

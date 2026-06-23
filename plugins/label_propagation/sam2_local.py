@@ -6,9 +6,11 @@ modifying the FiftyOne repo) in order to support the prompt / frame loading
 patterns used by our Davis propagation tests.
 """
 
+import hashlib
 import logging
 import os
 import tempfile
+from contextlib import contextmanager, nullcontext
 from typing import Any, Iterable, List, Optional, cast
 
 import cv2
@@ -213,6 +215,13 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         self._curr_frame_width = None
         self._curr_frame_height = None
 
+        # View-level caching: avoids re-loading frames and re-running the ViT
+        # backbone across repeated propagation calls on the same set of frames.
+        # Set model._view_cache_key externally before apply_model; cleared after.
+        self._inference_state_cache: dict = {}  # cache_key -> inference_state
+        self._backbone_cache: dict = {}          # cache_key -> {frame_idx: (image, backbone_out)}
+        self._view_cache_key: Optional[str] = None
+
     def _patch_sam2_memory_dtype_handling(self):
         # Some SAM2 code paths store memory tensors in bfloat16 (e.g. on CUDA
         # GPUs with bf16-default matmul or on MPS/CPU), which collides with
@@ -261,6 +270,51 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
     def ragged_batches(self):
         # Frames are resized to a fixed size, so batching is safe
         return False
+
+    @staticmethod
+    def _compute_view_cache_key(parts: list) -> str:
+        """MD5 fingerprint over an ordered list of 'sample_id:filepath' strings."""
+        return hashlib.md5("|".join(parts).encode()).hexdigest()
+
+    @contextmanager
+    def _backbone_cache_context(self, cache_key: str):
+        """Cache SAM2 ViT backbone outputs per frame across propagation runs.
+
+        On the first pass (cold cache), each frame's backbone features are computed
+        normally and stored in self._backbone_cache[cache_key].  On subsequent passes
+        (warm cache), the stored features are pre-loaded into
+        inference_state["cached_features"] before SAM2's own _get_image_feature runs,
+        so that forward_image (the ViT encode step) is never called again.
+        """
+        # Remember whether _get_image_feature was already an instance attribute
+        # (rare, but guards against over-deleting on cleanup).
+        had_instance_attr = "_get_image_feature" in vars(self.model)
+        original = self.model._get_image_feature
+        frame_cache = self._backbone_cache.setdefault(cache_key, {})
+
+        def _patched(inference_state, frame_idx, batch_size):
+            if frame_idx in frame_cache:
+                # Pre-populate SAM2's 1-frame cache so its lookup hits and
+                # forward_image is skipped entirely.
+                inference_state["cached_features"] = {
+                    frame_idx: frame_cache[frame_idx]
+                }
+            result = original(inference_state, frame_idx, batch_size)
+            # Populate our cache on first encounter (cache-miss path only).
+            if frame_idx not in frame_cache:
+                entry = inference_state["cached_features"].get(frame_idx)
+                if entry is not None:
+                    frame_cache[frame_idx] = entry
+            return result
+
+        self.model._get_image_feature = _patched
+        try:
+            yield
+        finally:
+            if had_instance_attr:
+                self.model._get_image_feature = original
+            else:
+                del self.model._get_image_feature
 
     def _download_model(self, config):
         config.download_model_if_necessary()
@@ -435,12 +489,20 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         assert self._curr_frame_width is not None
         assert self._curr_frame_height is not None
 
-        image_folder = getattr(video_reader, "image_folder", None)
-        if image_folder is not None:
-            inference_state = self.model.init_state(image_folder)
+        cache_key = getattr(self, "_view_cache_key", None)
+
+        # Phase 1: inference_state cache — reuse loaded frame tensors across runs.
+        if cache_key is not None and cache_key in self._inference_state_cache:
+            inference_state = self._inference_state_cache[cache_key]
+            self.model.reset_state(inference_state)
         else:
-            video_path = (sample, video_reader)
-            inference_state = self.model.init_state(video_path)
+            image_folder = getattr(video_reader, "image_folder", None)
+            if image_folder is not None:
+                inference_state = self.model.init_state(image_folder)
+            else:
+                inference_state = self.model.init_state((sample, video_reader))
+            if cache_key is not None:
+                self._inference_state_cache[cache_key] = inference_state
 
         tracker = SAM2ObjectTracker()
 
@@ -484,47 +546,54 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                     )
 
         sample_detections = {}
-        for (
-            out_frame_idx,
-            out_obj_ids,
-            out_mask_logits,
-        ) in self.model.propagate_in_video(
-            inference_state,
-            reverse=(reverse := getattr(self, "propagate_in_reverse", False))
-            and inference_state["num_frames"] > 1,
-            start_frame_idx=(
-                inference_state["num_frames"] - 1
-                if reverse and inference_state["num_frames"] > 1
-                else None
-            ),
-        ):
-            detections = []
+        # Phase 2: backbone feature cache — skip ViT re-encoding across runs.
+        ctx = (
+            self._backbone_cache_context(cache_key)
+            if cache_key is not None
+            else nullcontext()
+        )
+        with ctx:
+            for (
+                out_frame_idx,
+                out_obj_ids,
+                out_mask_logits,
+            ) in self.model.propagate_in_video(
+                inference_state,
+                reverse=(reverse := getattr(self, "propagate_in_reverse", False))
+                and inference_state["num_frames"] > 1,
+                start_frame_idx=(
+                    inference_state["num_frames"] - 1
+                    if reverse and inference_state["num_frames"] > 1
+                    else None
+                ),
+            ):
+                detections = []
 
-            for i, out_obj_id in enumerate(out_obj_ids):
-                index, label = tracker.index_and_label(out_obj_id)
+                for i, out_obj_id in enumerate(out_obj_ids):
+                    index, label = tracker.index_and_label(out_obj_id)
 
-                bounding_box, mask = logits_to_box_and_mask(
-                    out_mask_logits[i].cpu().numpy(),
-                    self._curr_frame_width,
-                    self._curr_frame_height,
-                )
-                if bounding_box is None:
-                    continue
-
-                detections.append(
-                    fol.Detection(
-                        label=label,
-                        bounding_box=bounding_box,
-                        mask=mask
-                        if self._curr_prompt_type == "masks"
-                        else None,
-                        index=index,
+                    bounding_box, mask = logits_to_box_and_mask(
+                        out_mask_logits[i].cpu().numpy(),
+                        self._curr_frame_width,
+                        self._curr_frame_height,
                     )
-                )
+                    if bounding_box is None:
+                        continue
 
-            sample_detections[int(out_frame_idx) + 1] = fol.Detections(
-                detections=detections
-            )
+                    detections.append(
+                        fol.Detection(
+                            label=label,
+                            bounding_box=bounding_box,
+                            mask=mask
+                            if self._curr_prompt_type == "masks"
+                            else None,
+                            index=index,
+                        )
+                    )
+
+                sample_detections[int(out_frame_idx) + 1] = fol.Detections(
+                    detections=detections
+                )
 
         return sample_detections
 
@@ -533,12 +602,20 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         assert self._curr_frame_width is not None
         assert self._curr_frame_height is not None
 
-        image_folder = getattr(video_reader, "image_folder", None)
-        if image_folder is not None:
-            inference_state = self.model.init_state(image_folder)
+        cache_key = getattr(self, "_view_cache_key", None)
+
+        # Phase 1: inference_state cache — reuse loaded frame tensors across runs.
+        if cache_key is not None and cache_key in self._inference_state_cache:
+            inference_state = self._inference_state_cache[cache_key]
+            self.model.reset_state(inference_state)
         else:
-            video_path = (sample, video_reader)
-            inference_state = self.model.init_state(video_path)
+            image_folder = getattr(video_reader, "image_folder", None)
+            if image_folder is not None:
+                inference_state = self.model.init_state(image_folder)
+            else:
+                inference_state = self.model.init_state((sample, video_reader))
+            if cache_key is not None:
+                self._inference_state_cache[cache_key] = inference_state
 
         tracker = SAM2ObjectTracker()
 
@@ -568,45 +645,52 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
                 )
 
         sample_detections = {}
-        for (
-            out_frame_idx,
-            out_obj_ids,
-            out_mask_logits,
-        ) in self.model.propagate_in_video(
-            inference_state,
-            reverse=(reverse := getattr(self, "propagate_in_reverse", False))
-            and inference_state["num_frames"] > 1,
-            start_frame_idx=(
-                inference_state["num_frames"] - 1
-                if reverse and inference_state["num_frames"] > 1
-                else None
-            ),
-        ):
-            detections = []
+        # Phase 2: backbone feature cache — skip ViT re-encoding across runs.
+        ctx = (
+            self._backbone_cache_context(cache_key)
+            if cache_key is not None
+            else nullcontext()
+        )
+        with ctx:
+            for (
+                out_frame_idx,
+                out_obj_ids,
+                out_mask_logits,
+            ) in self.model.propagate_in_video(
+                inference_state,
+                reverse=(reverse := getattr(self, "propagate_in_reverse", False))
+                and inference_state["num_frames"] > 1,
+                start_frame_idx=(
+                    inference_state["num_frames"] - 1
+                    if reverse and inference_state["num_frames"] > 1
+                    else None
+                ),
+            ):
+                detections = []
 
-            for i, out_obj_id in enumerate(out_obj_ids):
-                index, label = tracker.index_and_label(out_obj_id)
+                for i, out_obj_id in enumerate(out_obj_ids):
+                    index, label = tracker.index_and_label(out_obj_id)
 
-                bounding_box, mask = logits_to_box_and_mask(
-                    out_mask_logits[i].cpu().numpy(),
-                    self._curr_frame_width,
-                    self._curr_frame_height,
-                )
-                if bounding_box is None:
-                    continue
-
-                detections.append(
-                    fol.Detection(
-                        label=label,
-                        bounding_box=bounding_box,
-                        mask=mask,
-                        index=index,
+                    bounding_box, mask = logits_to_box_and_mask(
+                        out_mask_logits[i].cpu().numpy(),
+                        self._curr_frame_width,
+                        self._curr_frame_height,
                     )
-                )
+                    if bounding_box is None:
+                        continue
 
-            sample_detections[int(out_frame_idx) + 1] = fol.Detections(
-                detections=detections
-            )
+                    detections.append(
+                        fol.Detection(
+                            label=label,
+                            bounding_box=bounding_box,
+                            mask=mask,
+                            index=index,
+                        )
+                    )
+
+                sample_detections[int(out_frame_idx) + 1] = fol.Detections(
+                    detections=detections
+                )
 
         return sample_detections
 
