@@ -58,6 +58,42 @@ def load_local_sam2(media_mode: str):
     return model
 
 
+def _log_benchmark_stats(
+    t0: float,
+    ram_before: float,
+    proc: psutil.Process,
+    model: Any,
+    n_samples: int,
+    n_frames: int,
+) -> dict[str, float]:
+    t1 = time.perf_counter()
+    elapsed = t1 - t0
+    logger.info(f"\n\nElapsed: {elapsed:.2f}s")
+    logger.info(
+        f"Samples: {n_samples} | ms/sample: {1000 * elapsed / n_samples:.2f}"
+    )
+    logger.info(
+        f"Frames: {n_frames} | ms/frame: {1000 * elapsed / n_frames:.2f}"
+    )
+    ram_after = proc.memory_info().rss / 1e9
+    logger.info(
+        f"RAM: {ram_after:.2f} GB total (delta: {ram_after - ram_before:+.2f} GB)"
+    )
+    gpu_peak = 0.0
+    device = getattr(model, "_device", None)
+    if torch.cuda.is_available() and device is not None:
+        gpu_peak = torch.cuda.max_memory_allocated(device=device) / 1e9
+        logger.info(f"GPU peak: {gpu_peak:.2f} GB")
+    logger.info("")
+    return {
+        "elapsed": elapsed,
+        "ms_per_sample": 1000 * elapsed / n_samples,
+        "ms_per_frame": 1000 * elapsed / n_frames,
+        "ram_gb": ram_after,
+        "gpu_peak_gb": gpu_peak,
+    }
+
+
 def get_frame_field_name(field_name: str, media_mode: str) -> str:
     if media_mode == "video":
         if field_name.startswith("frames."):
@@ -703,10 +739,20 @@ def propagate_annotations_sam2_m1_video_annotation(
     add_detection_field_if_not_exists(view._dataset, temp_output_field_bwd)
     add_detection_field_if_not_exists(view._dataset, temp_output_field_fused)
 
+    _proc = psutil.Process(os.getpid())
+    _ram_before = _proc.memory_info().rss / 1e9
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
+    t0 = time.perf_counter()
+
     if media_mode == "video":
         first_sample = sorted_view.first()
-        n_frames = len(first_sample.frames)
-        end_frame_number = min(end_frame_number, n_frames)
+        n_frames = sum(
+            len(sample.frames) for sample in sorted_view.iter_samples()  # type: ignore[arg-type]
+        )
+        n_samples = len(sorted_view)  # type: ignore[arg-type]
+        end_frame_number = min(end_frame_number, len(first_sample.frames))
 
         _prompt_kw = dict(
             annotation_field=field_name,
@@ -780,7 +826,10 @@ def propagate_annotations_sam2_m1_video_annotation(
                 temp_output_field_fused,
             ):
                 delete_field_if_exists(view._dataset, fn)
-        return {}
+
+        return _log_benchmark_stats(
+            t0, _ram_before, _proc, model, n_samples, n_frames
+        )
 
     # Image / flattened group: slice the sorted sample sequence
     n = len(sorted_view)
@@ -790,6 +839,8 @@ def propagate_annotations_sam2_m1_video_annotation(
         (start_frame_number - 1) : end_frame_number
     ]
     batch_size = len(slice_view)
+    n_frames = len(slice_view)
+    n_samples = len(slice_view)
 
     slice_view.set_values(
         temp_prompt_field,
@@ -855,4 +906,6 @@ def propagate_annotations_sam2_m1_video_annotation(
         ):
             delete_field_if_exists(view._dataset, fn)
 
-    return {}
+    return _log_benchmark_stats(
+        t0, _ram_before, _proc, model, n_samples, n_frames
+    )
