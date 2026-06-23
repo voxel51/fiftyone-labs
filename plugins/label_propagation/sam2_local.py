@@ -189,7 +189,10 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         self.config = config
         device = self.config.device
         if device is None:
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            # just for voxbox benchmarking, get device from env var
+            device = os.getenv("BENCHMARK_DEVICE", "cpu")
+            if ("cuda" in device) and not torch.cuda.is_available():
+                device = "cpu"
         self._device = torch.device(device)
 
         self._download_model(config)
@@ -204,6 +207,8 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
             self.ctx = None
 
         self.model = self._load_model(config)
+        logger.info(f"\n\nModel loaded on device: {self.model.device}\n\n")
+
         self.media_mode = getattr(config, "media_mode", "video")
         self._patch_sam2_memory_dtype_handling()
 
