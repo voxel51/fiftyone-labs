@@ -32,7 +32,7 @@ SAM2_PROPAGATION_METHODS = [
     "sam2_large",
 ]
 
-SUPPORTED_PROPAGATION_METHODS = SAM2_PROPAGATION_METHODS
+SUPPORTED_PROPAGATION_METHODS = SAM2_PROPAGATION_METHODS + ["sam3"]
 
 _SAM2_ZOO_MODELS = {
     "sam2_tiny": "segment-anything-2-hiera-tiny-video-torch",
@@ -941,3 +941,115 @@ def propagate_annotations_sam2_m1_video_annotation(
         t0, _ram_before, _proc, model, n_samples, n_frames
     )
 
+
+def propagate_annotations_sam3_m1_video(
+    view: Union[fo.Dataset, fo.DatasetView],
+    annotation_field: str,
+    label_indices: List[int],
+    start_frame_number: int,
+    end_frame_number: int,
+    sort_field: Optional[str] = None,
+    progress: Optional[bool] = True,
+) -> dict[str, float]:
+    """
+    Propagate labels in-place over a 1-indexed frame range using SAM3 (video only).
+
+    Uses a single bidirectional SAM3 pass into a temp field, then merges tracked
+    label indices back into the annotation field.
+    """
+    if not label_indices:
+        raise ValueError("label_indices must contain at least one index")
+    if start_frame_number < 1:
+        raise ValueError("start_frame_number must be >= 1 (1-indexed)")
+    if end_frame_number < start_frame_number:
+        raise ValueError(
+            "end_frame_number must be >= start_frame_number (both 1-indexed)"
+        )
+
+    media_mode = str(view.media_type)
+    if media_mode != "video":
+        raise ValueError("SAM3 M1 propagation only supports video datasets")
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "SAM3 video propagation requires a GPU (CUDA). "
+            "Use a SAM2 propagation method for CPU execution."
+        )
+
+    field_name = get_frame_field_name(annotation_field, media_mode)
+    add_detection_field_if_not_exists(view._dataset, field_name)
+
+    sorted_view = _sorted_view(view, sort_field)
+    random_suffix = os.urandom(12).hex()
+
+    temp_prompt_field = f"{field_name}_{random_suffix}_prompt"
+    temp_output_field = f"{field_name}_{random_suffix}_out"
+
+    add_detection_field_if_not_exists(view._dataset, temp_prompt_field)
+    add_detection_field_if_not_exists(view._dataset, temp_output_field)
+
+    first_sample = sorted_view.first()
+    n_frames = sum(
+        len(sample.frames) for sample in sorted_view.iter_samples()  # type: ignore[arg-type]
+    )
+    n_samples = len(sorted_view)  # type: ignore[arg-type]
+    end_frame_number = min(end_frame_number, len(first_sample.frames))
+
+    _proc = psutil.Process(os.getpid())
+    _ram_before = _proc.memory_info().rss / 1e9
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
+    t0 = time.perf_counter()
+
+    _prompt_kw = dict(
+        annotation_field=field_name,
+        temp_prompt_field=temp_prompt_field,
+        label_indices=label_indices,
+    )
+    for _ in sorted_view.map_samples(
+        partial(_populate_video_temp_prompt_field, **_prompt_kw),
+        save=True,
+        progress=progress,
+        num_workers=1,
+    ):
+        pass
+
+    model = foz.load_zoo_model(
+        "segment-anything-3-video-torch",
+        operation_mode="visual",
+        propagation_direction="both",
+    )
+
+    video_batch_size = len(sorted_view)
+    try:
+        sorted_view.apply_model(
+            model,
+            label_field=temp_output_field,
+            prompt_field=f"frames.{temp_prompt_field}",
+            batch_size=video_batch_size,
+            progress=progress,
+            skip_failures=False,
+        )
+
+        _merge_kw = dict(
+            fused_field=temp_output_field,
+            annotation_field=field_name,
+            label_indices=label_indices,
+            start_frame_number=start_frame_number,
+            end_frame_number=end_frame_number,
+        )
+        for _ in sorted_view.map_samples(
+            partial(_merge_m1_video_sample, **_merge_kw),
+            save=True,
+            progress=progress,
+            num_workers=1,
+        ):
+            pass
+    finally:
+        for fn in (temp_prompt_field, temp_output_field):
+            delete_field_if_exists(view._dataset, fn)
+
+    return _log_benchmark_stats(
+        t0, _ram_before, _proc, model, n_samples, n_frames
+    )

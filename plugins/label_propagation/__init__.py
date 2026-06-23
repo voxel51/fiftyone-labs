@@ -24,6 +24,7 @@ from .propagation import (
     SUPPORTED_PROPAGATION_METHODS,
     propagate_annotations_sam2,
     propagate_annotations_sam2_m1_video_annotation,
+    propagate_annotations_sam3_m1_video,
 )
 from .panel import LabelPropagationPanel
 
@@ -402,6 +403,11 @@ class PropagateLabels(foo.Operator):
         )
 
         try:
+            if propagation_method == "sam3":
+                raise RuntimeError(
+                    "SAM3 propagation is only supported via the M1 operator "
+                    "(propagate_labels_m1)"
+                )
             if propagation_method == "sam2":
                 propagation_method = "sam2_tiny"
             if propagation_method not in SUPPORTED_PROPAGATION_METHODS:
@@ -617,16 +623,31 @@ class PropagateLabelsM1(foo.Operator):
         )
 
         try:
-            _ = propagate_annotations_sam2_m1_video_annotation(
-                view=view,
-                annotation_field=annotation_field,
-                label_indices=label_indices,
-                start_frame_number=start_frame_number,
-                end_frame_number=end_frame_number,
-                sort_field=sort_field,
-                progress=True,
-                propagation_method=propagation_method,
-            )
+            if propagation_method == "sam3":
+                if view.media_type != "video":
+                    raise RuntimeError(
+                        "SAM3 propagation is only supported for video datasets"
+                    )
+                _ = propagate_annotations_sam3_m1_video(
+                    view=view,
+                    annotation_field=annotation_field,
+                    label_indices=label_indices,
+                    start_frame_number=start_frame_number,
+                    end_frame_number=end_frame_number,
+                    sort_field=sort_field,
+                    progress=True,
+                )
+            else:
+                _ = propagate_annotations_sam2_m1_video_annotation(
+                    view=view,
+                    annotation_field=annotation_field,
+                    label_indices=label_indices,
+                    start_frame_number=start_frame_number,
+                    end_frame_number=end_frame_number,
+                    sort_field=sort_field,
+                    progress=True,
+                    propagation_method=propagation_method,
+                )
             if view.media_type == "video":
                 with auth_context():
                     foul.index_to_instance(view, annotation_field)
