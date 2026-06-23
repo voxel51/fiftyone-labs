@@ -31,6 +31,19 @@ from .panel import LabelPropagationPanel
 logger = logging.getLogger(__name__)
 
 
+def _parse_label_indices(raw) -> list[int]:
+    if raw is None:
+        return []
+    if isinstance(raw, int):
+        return [raw]
+    if isinstance(raw, list):
+        return [int(x) for x in raw]
+    s = str(raw).strip()
+    if not s:
+        return []
+    return [int(part.strip()) for part in s.split(",") if part.strip()]
+
+
 class TemporalSegmentation(foo.Operator):
     version = "1.0.0"
 
@@ -504,6 +517,13 @@ class PropagateLabelsM1(foo.Operator):
             )
             return False
 
+        label_indices = _parse_label_indices(ctx.params.get("label_indices"))
+        if not label_indices:
+            logger.warning(
+                "label_indices is required (comma-separated, e.g. '0,1')."
+            )
+            return False
+
         return True
 
     def resolve_input(self, ctx) -> types.Property:
@@ -528,10 +548,10 @@ class PropagateLabelsM1(foo.Operator):
             required=True,
         )
 
-        inputs.int(
-            "label_index",
-            label="Label Index",
-            description="Index of the single detection to propagate",
+        inputs.str(
+            "label_indices",
+            label="Label Indices",
+            description="Comma-separated detection indices to propagate (e.g. '0,1')",
             required=True,
         )
 
@@ -573,7 +593,7 @@ class PropagateLabelsM1(foo.Operator):
         view = ctx.target_view()
         total_samples = len(view)
         annotation_field = ctx.params.get("annotation_field")
-        label_index = ctx.params.get("label_index")
+        label_indices = _parse_label_indices(ctx.params.get("label_indices"))
         start_frame_number = ctx.params.get("start_frame_number")
         end_frame_number = ctx.params.get("end_frame_number")
         sort_field = ctx.params.get("sort_field", None)
@@ -582,7 +602,7 @@ class PropagateLabelsM1(foo.Operator):
             _ = propagate_annotations_sam2_m1_video_annotation(
                 view=view,
                 annotation_field=annotation_field,
-                label_index=label_index,
+                label_indices=label_indices,
                 start_frame_number=start_frame_number,
                 end_frame_number=end_frame_number,
                 sort_field=sort_field,
@@ -609,7 +629,7 @@ class PropagateLabelsM1(foo.Operator):
 
         return {
             "message": (
-                f"Label {label_index} propagated in '{annotation_field}' "
+                f"Labels {label_indices} propagated in '{annotation_field}' "
                 f"for frames {start_frame_number}-{end_frame_number}"
             ),
             "samples_processed": total_samples,

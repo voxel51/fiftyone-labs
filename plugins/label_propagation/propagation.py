@@ -285,27 +285,29 @@ def _copy_forward_outputs_video_sample(
         )
 
 
-def _detections_for_label_index(
-    detections: Optional[fol.Detections], label_index: int
+def _detections_for_label_indices(
+    detections: Optional[fol.Detections], label_indices: List[int]
 ) -> fol.Detections:
     if detections is None or detections.detections is None:
         return fol.Detections()
-    filtered = [d for d in detections.detections if d.index == label_index]
+    tracked = set(label_indices)
+    filtered = [d for d in detections.detections if d.index in tracked]
     return fol.Detections(detections=filtered)
 
 
 def _merge_propagated_into_existing(
     existing: Optional[fol.Detections],
     propagated: Optional[fol.Detections],
-    label_index: int,
+    label_indices: List[int],
 ) -> fol.Detections:
     by_index = {}
     if existing is not None and existing.detections is not None:
         by_index = {d.index: d for d in existing.detections}
+    tracked = set(label_indices)
     if propagated is not None and propagated.detections is not None:
         for det in propagated.detections:
-            if det.index == label_index:
-                by_index[label_index] = det
+            if det.index in tracked:
+                by_index[det.index] = det
     return fol.Detections(detections=list(by_index.values()))
 
 
@@ -321,13 +323,13 @@ def _merge_m1_image_sample(
     sample: fo.Sample,
     fused_field: str,
     annotation_field: str,
-    label_index: int,
+    label_indices: List[int],
 ) -> None:
     existing = sample.get_field(annotation_field)
     propagated = sample.get_field(fused_field)
     sample.set_field(
         annotation_field,
-        _merge_propagated_into_existing(existing, propagated, label_index),
+        _merge_propagated_into_existing(existing, propagated, label_indices),
     )
     sample.save()
 
@@ -336,13 +338,13 @@ def _populate_video_temp_prompt_field(
     sample: fo.Sample,
     annotation_field: str,
     temp_prompt_field: str,
-    label_index: int,
+    label_indices: List[int],
 ) -> None:
     for frame in sample.frames.values():
         frame.set_field(
             temp_prompt_field,
-            _detections_for_label_index(
-                frame.get_field(annotation_field), label_index
+            _detections_for_label_indices(
+                frame.get_field(annotation_field), label_indices
             ),
         )
     sample.save()
@@ -352,7 +354,7 @@ def _merge_m1_video_sample(
     sample: fo.Sample,
     fused_field: str,
     annotation_field: str,
-    label_index: int,
+    label_indices: List[int],
     start_frame_number: int,
     end_frame_number: int,
 ) -> None:
@@ -368,7 +370,7 @@ def _merge_m1_video_sample(
         frame.set_field(
             annotation_field,
             _merge_propagated_into_existing(
-                existing, propagated, label_index
+                existing, propagated, label_indices
             ),
         )
     sample.save()
@@ -602,19 +604,19 @@ def propagate_annotations_sam2(
 def propagate_annotations_sam2_m1_video_annotation(
     view: Union[fo.Dataset, fo.DatasetView],
     annotation_field: str,
-    label_index: int,
+    label_indices: List[int],
     start_frame_number: int,
     end_frame_number: int,
     sort_field: Optional[str] = None,
     progress: Optional[bool] = True,
 ) -> dict[str, float]:
     """
-    Propagate a single label in-place over a 1-indexed frame range (bidirectional, no batching).
+    Propagate labels in-place over a 1-indexed frame range (bidirectional, no batching).
 
     Args:
         view: The view to propagate annotations from
         annotation_field: The field name of the annotation to propagate (read and write)
-        label_index: The index of the label to propagate
+        label_indices: Detection indices to propagate
         start_frame_number: 1-indexed position of the first frame in the sorted sequence
             (inclusive)
         end_frame_number: 1-indexed position of the last frame in the sorted sequence
@@ -627,6 +629,8 @@ def propagate_annotations_sam2_m1_video_annotation(
         Note: batch_size is not supported (all frames in range at once).
         bidirectional is always True.
     """
+    if not label_indices:
+        raise ValueError("label_indices must contain at least one index")
     if start_frame_number < 1:
         raise ValueError("start_frame_number must be >= 1 (1-indexed)")
     if end_frame_number < start_frame_number:
@@ -660,16 +664,12 @@ def propagate_annotations_sam2_m1_video_annotation(
     if media_mode == "video":
         first_sample = sorted_view.first()
         n_frames = len(first_sample.frames)
-        if end_frame_number > n_frames:
-            raise ValueError(
-                f"end_frame_number ({end_frame_number}) exceeds the number of "
-                f"frames ({n_frames}) in the video"
-            )
+        end_frame_number = min(end_frame_number, n_frames)
 
         _prompt_kw = dict(
             annotation_field=field_name,
             temp_prompt_field=temp_prompt_field,
-            label_index=label_index,
+            label_indices=label_indices,
         )
         for _ in sorted_view.map_samples(
             partial(_populate_video_temp_prompt_field, **_prompt_kw),
@@ -719,7 +719,7 @@ def propagate_annotations_sam2_m1_video_annotation(
             _merge_kw = dict(
                 fused_field=temp_output_field_fused,
                 annotation_field=field_name,
-                label_index=label_index,
+                label_indices=label_indices,
                 start_frame_number=start_frame_number,
                 end_frame_number=end_frame_number,
             )
@@ -742,11 +742,7 @@ def propagate_annotations_sam2_m1_video_annotation(
 
     # Image / flattened group: slice the sorted sample sequence
     n = len(sorted_view)
-    if end_frame_number > n:
-        raise ValueError(
-            f"end_frame_number ({end_frame_number}) exceeds the number of "
-            f"samples ({n}) in the sorted view"
-        )
+    end_frame_number = min(end_frame_number, n)
 
     slice_view = sorted_view[
         (start_frame_number - 1) : end_frame_number
@@ -756,7 +752,7 @@ def propagate_annotations_sam2_m1_video_annotation(
     slice_view.set_values(
         temp_prompt_field,
         [
-            _detections_for_label_index(d, label_index)
+            _detections_for_label_indices(d, label_indices)
             for d in slice_view.values(field_name)
         ],
     )
@@ -799,7 +795,7 @@ def propagate_annotations_sam2_m1_video_annotation(
         _merge_kw = dict(
             fused_field=temp_output_field_fused,
             annotation_field=field_name,
-            label_index=label_index,
+            label_indices=label_indices,
         )
         for _ in slice_view.map_samples(
             partial(_merge_m1_image_sample, **_merge_kw),

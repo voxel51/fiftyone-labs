@@ -7,6 +7,65 @@ import fiftyone.operators as foo
 from fiftyone.core.expressions import ViewField as F
 
 
+def _assert_propagated_indices(frame_indices_list, tracked):
+    """Seed frames keep untracked labels; propagated frames only have tracked indices."""
+    if tracked == {0, 1}:
+        for frame_indices in frame_indices_list:
+            if not frame_indices:
+                continue
+            idx_set = set(frame_indices)
+            assert idx_set <= tracked
+            assert idx_set
+        return
+
+    seed_positions = {
+        pos
+        for pos, frame_indices in enumerate(frame_indices_list)
+        if frame_indices and (set(frame_indices) - tracked)
+    }
+    assert len(seed_positions) >= 2
+
+    for pos, frame_indices in enumerate(frame_indices_list):
+        if not frame_indices:
+            continue
+        idx_set = set(frame_indices)
+        if pos in seed_positions:
+            assert tracked & idx_set
+            assert idx_set - tracked
+        else:
+            assert idx_set <= tracked
+            assert idx_set
+
+
+def _assert_propagated_video_indices(frame_numbers, sample_indices, tracked):
+    if tracked == {0, 1}:
+        for frame_indices in sample_indices:
+            if not frame_indices:
+                continue
+            idx_set = set(frame_indices)
+            assert idx_set <= tracked
+            assert idx_set
+        return
+
+    seed_keys = {
+        fn
+        for fn, frame_indices in zip(frame_numbers, sample_indices)
+        if frame_indices and (set(frame_indices) - tracked)
+    }
+    assert len(seed_keys) >= 2
+
+    for fn, frame_indices in zip(frame_numbers, sample_indices):
+        if not frame_indices:
+            continue
+        idx_set = set(frame_indices)
+        if fn in seed_keys:
+            assert tracked & idx_set
+            assert idx_set - tracked
+        else:
+            assert idx_set <= tracked
+            assert idx_set
+
+
 @pytest.fixture
 def image_dataset_view():
     dataset = foz.load_zoo_dataset(
@@ -113,7 +172,11 @@ def partially_labeled_video_dataset_view(video_dataset_view):
         "partially_labeled_grouped_dataset_view",
     ],
 )
-def test_propagate_labels_m1_image(request, partially_labeled_view_fixture):
+@pytest.mark.parametrize("label_indices", ["0", "0,1"])
+def test_propagate_labels_m1_image(
+    request, partially_labeled_view_fixture, label_indices
+):
+    tracked = {int(x.strip()) for x in label_indices.split(",")}
     partially_labeled_view = request.getfixturevalue(
         partially_labeled_view_fixture
     )
@@ -129,7 +192,7 @@ def test_propagate_labels_m1_image(request, partially_labeled_view_fixture):
         "view": partially_labeled_view,
         "params": {
             "annotation_field": "labels_test_m1",
-            "label_index": 0,
+            "label_indices": label_indices,
             "start_frame_number": 1,
             "end_frame_number": n,
             "sort_field": "new_frame_number",
@@ -153,26 +216,17 @@ def test_propagate_labels_m1_image(request, partially_labeled_view_fixture):
 
     assert np.min(areas) > 0.05
 
+    partially_labeled_view._dataset.reload()
     sorted_view = check_view.sort_by("new_frame_number")
-    seed_positions = {n // 3, n * 2 // 3}
     output_indices = sorted_view.values("labels_test_m1.detections.index")
-
-    frames_with_nonzero_index_labels = 0
-    for pos, frame_indices in enumerate(output_indices):
-        if frame_indices is None:
-            continue
-        if pos in seed_positions:
-            frames_with_nonzero_index_labels += int(
-                any(idx != 0 for idx in frame_indices)
-            )
-            assert 0 in frame_indices
-        else:
-            assert set(frame_indices) <= {0}
-
-    assert frames_with_nonzero_index_labels == len(seed_positions)
+    _assert_propagated_indices(output_indices, tracked)
 
 
-def test_propagate_labels_m1_video(partially_labeled_video_dataset_view):
+@pytest.mark.parametrize("label_indices", ["0", "0,1"])
+def test_propagate_labels_m1_video(
+    partially_labeled_video_dataset_view, label_indices
+):
+    tracked = {int(x.strip()) for x in label_indices.split(",")}
     n = len(partially_labeled_video_dataset_view.first().frames)
 
     ctx = {
@@ -180,7 +234,7 @@ def test_propagate_labels_m1_video(partially_labeled_video_dataset_view):
         "view": partially_labeled_video_dataset_view,
         "params": {
             "annotation_field": "frames.labels_test_m1",
-            "label_index": 0,
+            "label_indices": label_indices,
             "start_frame_number": 1,
             "end_frame_number": n,
         },
@@ -207,6 +261,7 @@ def test_propagate_labels_m1_video(partially_labeled_video_dataset_view):
     ]
     assert np.min(areas) > 0.05
 
+    partially_labeled_video_dataset_view._dataset.reload()
     all_indices = partially_labeled_video_dataset_view.values(
         "frames.labels_test_m1.detections.index"
     )
@@ -214,23 +269,9 @@ def test_propagate_labels_m1_video(partially_labeled_video_dataset_view):
         partially_labeled_video_dataset_view, all_indices
     ):
         frame_numbers = sorted(sample.frames.keys())
-        n_frames = len(frame_numbers)
-        seed_positions = {n_frames // 3, n_frames * 2 // 3}
-        seed_keys = {frame_numbers[i] for i in seed_positions}
-
-        frames_with_nonzero_index_labels = 0
-        for fn, frame_indices in zip(frame_numbers, sample_indices):
-            if frame_indices is None:
-                continue
-            if fn in seed_keys:
-                frames_with_nonzero_index_labels += int(
-                    any(idx != 0 for idx in frame_indices)
-                )
-                assert 0 in frame_indices
-            else:
-                assert set(frame_indices) <= {0}
-
-        assert frames_with_nonzero_index_labels == len(seed_positions)
+        _assert_propagated_video_indices(
+            frame_numbers, sample_indices, tracked
+        )
         assert (
             len(set(sample_indices[0]).intersection(set(sample_indices[-1])))
             > 0
