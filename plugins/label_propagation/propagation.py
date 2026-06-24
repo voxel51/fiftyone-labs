@@ -15,22 +15,47 @@ from .sam2_local import (
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_PROPAGATION_METHODS = [
-    "sam2",
+SAM2_PROPAGATION_METHODS = [
+    "sam2_tiny",
+    "sam2_base",
+    "sam2_large",
 ]
 
-_SAM2_ZOO_MODEL_NAME = "segment-anything-2-hiera-tiny-video-torch"
-_SAM2_LOCAL_MODEL_CACHE: dict[str, Any] = {}
+SUPPORTED_PROPAGATION_METHODS = SAM2_PROPAGATION_METHODS + ["sam3"]
+
+_SAM2_ZOO_MODELS = {
+    "sam2_tiny": "segment-anything-2-hiera-tiny-video-torch",
+    "sam2_base": "segment-anything-2-hiera-base-plus-video-torch",
+    "sam2_large": "segment-anything-2-hiera-large-video-torch",
+}
+_SAM2_LOCAL_MODEL_CACHE: dict[tuple[str, str], Any] = {}
+
+_SAM3_ZOO_MODEL_NAME = "segment-anything-3-video-torch"
+_SAM3_LOCAL_MODEL_CACHE: dict[str, Any] = {}
 
 
-def load_local_sam2(media_mode: str):
-    if media_mode in _SAM2_LOCAL_MODEL_CACHE:
-        return _SAM2_LOCAL_MODEL_CACHE[media_mode]
+def _resolve_sam2_propagation_method(propagation_method: str) -> str:
+    if propagation_method == "sam2":
+        return "sam2_tiny"
+    if propagation_method not in _SAM2_ZOO_MODELS:
+        raise ValueError(
+            f"Unsupported SAM2 propagation method '{propagation_method}'. "
+            f"Choose from: {list(_SAM2_ZOO_MODELS.keys())}"
+        )
+    return propagation_method
 
+
+def load_local_sam2(media_mode: str, propagation_method: str = "sam2_tiny"):
+    propagation_method = _resolve_sam2_propagation_method(propagation_method)
+    cache_key = (media_mode, propagation_method)
+    if cache_key in _SAM2_LOCAL_MODEL_CACHE:
+        return _SAM2_LOCAL_MODEL_CACHE[cache_key]
+
+    zoo_model_name = _SAM2_ZOO_MODELS[propagation_method]
     foz.ensure_zoo_model_requirements(
-        _SAM2_ZOO_MODEL_NAME, error_level=None, log_success=False
+        zoo_model_name, error_level=None, log_success=False
     )
-    zoo_model, model_path = foz.download_zoo_model(_SAM2_ZOO_MODEL_NAME)
+    zoo_model, model_path = foz.download_zoo_model(zoo_model_name)
 
     config_dict = deepcopy(zoo_model.default_deployment_config_dict)
     inner = config_dict.setdefault("config", {})
@@ -42,8 +67,21 @@ def load_local_sam2(media_mode: str):
 
     config = SegmentAnything2VideoModelConfig(inner)
     model = SegmentAnything2VideoModel(config)
-    _SAM2_LOCAL_MODEL_CACHE[media_mode] = model
+    _SAM2_LOCAL_MODEL_CACHE[cache_key] = model
 
+    return model
+
+
+def load_local_sam3(media_mode: str):
+    if media_mode in _SAM3_LOCAL_MODEL_CACHE:
+        return _SAM3_LOCAL_MODEL_CACHE[media_mode]
+
+    model = foz.load_zoo_model(
+        _SAM3_ZOO_MODEL_NAME,
+        operation_mode="visual",
+        propagation_direction="both",
+    )
+    _SAM3_LOCAL_MODEL_CACHE[media_mode] = model
     return model
 
 
@@ -134,6 +172,7 @@ def propagate_annotations_sam2(
     sort_field: Optional[str] = None,
     batch_size: int = 32,
     progress: Optional[bool] = True,
+    propagation_method: str = "sam2_tiny",
 ) -> dict[str, float]:
     """
     Propagate annotations from exemplar frames (containing labels in input_annotation_field) to all the frames.
@@ -143,13 +182,14 @@ def propagate_annotations_sam2(
         output_annotation_field: The field name of the annotation to save to the target frame
         sort_field: Field to sort samples by
         progress: Whether to show progress bars (True/False) or use default (None)
+        propagation_method: SAM2 model variant; one of sam2_tiny, sam2_base, sam2_large
     """
     media_mode = str(view.media_type)
     if media_mode == "group":
         view = view.flatten()
         media_mode = "image"
 
-    model = load_local_sam2(media_mode=media_mode)
+    model = load_local_sam2(media_mode=media_mode, propagation_method=propagation_method)
 
     output_field = get_frame_field_name(output_annotation_field, media_mode)
     # Explicitly register the output field in the schema (needed for Teams)
@@ -177,6 +217,97 @@ def propagate_annotations_sam2(
     # We create a temp field to hold the input_annotation_field values for all frames
     # and updates from previous chunks' propagated outputs at overlapping frames.
     # This is to avoid overwriting the original input annotations.
+    temp_input_annotation_field = (
+        f"{input_annotation_field}_{os.urandom(12).hex()}"
+    )
+    add_detection_field_if_not_exists(
+        view._dataset,
+        temp_input_annotation_field,
+    )
+    run_view.set_values(
+        temp_input_annotation_field, run_view.values(input_annotation_field)
+    )
+
+    try:
+        for chunk_idx, (chunk_view, overlap) in enumerate(
+            iter_batches(run_view, batch_size, media_mode)  # type: ignore[arg-type]
+        ):
+            if overlap is not None:
+                overlap_frame = view._dataset[overlap]
+                overlap_frame[  # type: ignore[index]
+                    temp_input_annotation_field
+                ] = overlap_frame[output_field]
+                overlap_frame.save()
+
+            logger.info(f"Processing batch {chunk_idx + 1}")
+
+            chunk_view.apply_model(
+                model,
+                label_field=output_field,
+                prompt_field=temp_input_annotation_field,
+                batch_size=batch_size,
+                progress=progress,
+                skip_failures=False,
+            )
+    finally:
+        delete_field_if_exists(
+            view._dataset,
+            temp_input_annotation_field,
+        )
+
+    return {}
+
+
+def propagate_annotations_sam3(
+    view: Union[fo.Dataset, fo.DatasetView],
+    input_annotation_field: str,
+    output_annotation_field: str,
+    sort_field: Optional[str] = None,
+    batch_size: int = 32,
+    progress: Optional[bool] = True,
+) -> dict[str, float]:
+    """
+    Propagate annotations using SAM3 with built-in bidirectional tracking.
+
+    Args:
+        view: The view to propagate annotations from
+        input_annotation_field: Field containing annotations on exemplar frames
+        output_annotation_field: Field to write propagated annotations to
+        sort_field: Field to sort samples by
+        progress: Whether to show progress bars
+    """
+    media_mode = str(view.media_type)
+    if media_mode == "group":
+        view = view.flatten()
+        media_mode = "image"
+    if media_mode != "video":
+        raise ValueError(
+            "SAM3 propagation only supports video datasets. "
+            "Use a SAM2 propagation method for image sequences."
+        )
+    
+    model = load_local_sam3(media_mode=media_mode)
+
+    output_field = get_frame_field_name(output_annotation_field, media_mode)
+    add_detection_field_if_not_exists(view._dataset, output_field)
+
+    run_view = (
+        view.sort_by(sort_field)
+        if (sort_field and view.has_field(sort_field))
+        else view
+    )
+
+    if media_mode == "video":
+        run_view.apply_model(
+            model,
+            label_field=output_field,
+            prompt_field=input_annotation_field,
+            batch_size=batch_size,
+            progress=progress,
+            skip_failures=False,
+        )
+        return {}
+
     temp_input_annotation_field = (
         f"{input_annotation_field}_{os.urandom(12).hex()}"
     )

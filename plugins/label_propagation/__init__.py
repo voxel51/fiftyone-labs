@@ -20,12 +20,21 @@ from .exemplars import (
     extract_temporal_segments,
     select_exemplars,
 )
-from .propagation import propagate_annotations_sam2
+from .propagation import (
+    SAM2_PROPAGATION_METHODS,
+    propagate_annotations_sam2,
+    propagate_annotations_sam3,
+)
 from .propagation_cv2 import CV2_PROPAGATION_METHODS, propagate_annotations_cv2
 from .propagation_grabcut import GRABCUT_PROPAGATION_METHODS, propagate_annotations_grabcut
 from .propagation_densecrf import DENSECRF_PROPAGATION_METHODS, propagate_annotations_densecrf
 
-SUPPORTED_PROPAGATION_METHODS = ["sam2"] + CV2_PROPAGATION_METHODS + GRABCUT_PROPAGATION_METHODS + DENSECRF_PROPAGATION_METHODS
+SUPPORTED_PROPAGATION_METHODS = (
+    ["sam2"] + SAM2_PROPAGATION_METHODS + ["sam3"]
+    + CV2_PROPAGATION_METHODS
+    + GRABCUT_PROPAGATION_METHODS
+    + DENSECRF_PROPAGATION_METHODS
+)
 from .panel import LabelPropagationPanel
 
 
@@ -374,8 +383,18 @@ class PropagateLabels(foo.Operator):
         batch_size = ctx.params.get("batch_size", 32)
 
         try:
-            if propagation_method == "sam2":
+            if propagation_method in SAM2_PROPAGATION_METHODS or propagation_method == "sam2":
                 _ = propagate_annotations_sam2(
+                    view=view,
+                    input_annotation_field=input_annotation_field,
+                    output_annotation_field=output_annotation_field,
+                    sort_field=sort_field,
+                    batch_size=batch_size,
+                    progress=True,
+                    propagation_method=propagation_method,
+                )
+            elif propagation_method == "sam3":
+                _ = propagate_annotations_sam3(
                     view=view,
                     input_annotation_field=input_annotation_field,
                     output_annotation_field=output_annotation_field,
