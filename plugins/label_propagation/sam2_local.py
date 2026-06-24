@@ -69,6 +69,62 @@ def to_abs_mask(mask, abs_box, img_width, img_height):
     return mask_framed.astype(np.uint8)
 
 
+class SAM2VideoGetItem(fout.GetItem):
+    """Loads an SAM2 inference_state from a (sample, video_reader) pair.
+
+    Separates frame loading from prompt injection and propagation so that
+    caching subclasses can intercept it cleanly.
+
+    d keys:
+        sample      — the FiftyOne sample (real video or image-mode mock)
+        video_reader — the video reader (may have an ``image_folder`` attr
+                       for JPEG-directory mode)
+    """
+
+    required_keys = ["sample", "video_reader"]
+
+    def __init__(self, predictor, field_mapping=None):
+        super().__init__(field_mapping=field_mapping)
+        self.predictor = predictor
+
+    def __call__(self, d):
+        sample = d["sample"]
+        video_reader = d["video_reader"]
+        image_folder = getattr(video_reader, "image_folder", None)
+        if image_folder is not None:
+            return self.predictor.init_state(image_folder)
+        return self.predictor.init_state((sample, video_reader))
+
+
+class CachingSAM2VideoGetItem(SAM2VideoGetItem):
+    """SAM2VideoGetItem with Phase 1 inference_state caching.
+
+    On a cache hit, per-object tracking state is cleared via reset_state
+    while the loaded frame tensors (inference_state["images"]) are reused —
+    saving the expensive disk I/O + resize step.
+
+    cache_key must be set externally before each __call__ (None = no cache).
+    _inference_state_cache is a reference to the owning model's dict so that
+    callers can inspect or clear it via model._inference_state_cache.
+    """
+
+    def __init__(self, predictor, inference_state_cache, field_mapping=None):
+        super().__init__(predictor, field_mapping=field_mapping)
+        self.cache_key: Optional[str] = None
+        self._inference_state_cache = inference_state_cache  # shared ref
+
+    def __call__(self, d):
+        key = self.cache_key
+        if key is not None and key in self._inference_state_cache:
+            inference_state = self._inference_state_cache[key]
+            self.predictor.reset_state(inference_state)
+            return inference_state
+        inference_state = super().__call__(d)
+        if key is not None:
+            self._inference_state_cache[key] = inference_state
+        return inference_state
+
+
 class SAM2ObjectTracker:
     """
     Maps FiftyOne detection labels and indices to
@@ -217,10 +273,12 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
         # View-level caching: avoids re-loading frames and re-running the ViT
         # backbone across repeated propagation calls on the same set of frames.
-        # Set model._view_cache_key externally before apply_model; cleared after.
+        # _inference_state_cache / _backbone_cache live here so callers can
+        # inspect or clear them.  _view_cache_key is a property backed by
+        # _get_item.cache_key so propagation.py sets it exactly as before.
         self._inference_state_cache: dict = {}  # cache_key -> inference_state
-        self._backbone_cache: dict = {}          # cache_key -> {frame_idx: (image, backbone_out)}
-        self._view_cache_key: Optional[str] = None
+        self._backbone_cache: dict = {}          # cache_key -> {frame_idx: backbone_out}
+        self._get_item = CachingSAM2VideoGetItem(self.model, self._inference_state_cache)
 
     def _patch_sam2_memory_dtype_handling(self):
         # Some SAM2 code paths store memory tensors in bfloat16 (e.g. on CUDA
@@ -270,6 +328,15 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
     def ragged_batches(self):
         # Frames are resized to a fixed size, so batching is safe
         return False
+
+    @property
+    def _view_cache_key(self) -> Optional[str]:
+        """Cache key for the current view; proxied to _get_item.cache_key."""
+        return self._get_item.cache_key
+
+    @_view_cache_key.setter
+    def _view_cache_key(self, value: Optional[str]) -> None:
+        self._get_item.cache_key = value
 
     @staticmethod
     def _compute_view_cache_key(parts: list) -> str:
@@ -489,20 +556,9 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         assert self._curr_frame_width is not None
         assert self._curr_frame_height is not None
 
-        cache_key = getattr(self, "_view_cache_key", None)
-
-        # Phase 1: inference_state cache — reuse loaded frame tensors across runs.
-        if cache_key is not None and cache_key in self._inference_state_cache:
-            inference_state = self._inference_state_cache[cache_key]
-            self.model.reset_state(inference_state)
-        else:
-            image_folder = getattr(video_reader, "image_folder", None)
-            if image_folder is not None:
-                inference_state = self.model.init_state(image_folder)
-            else:
-                inference_state = self.model.init_state((sample, video_reader))
-            if cache_key is not None:
-                self._inference_state_cache[cache_key] = inference_state
+        # Phase 1: GetItem handles init_state on first call and reset_state on
+        # subsequent calls with the same cache_key (frame tensors are reused).
+        inference_state = self._get_item({"sample": sample, "video_reader": video_reader})
 
         tracker = SAM2ObjectTracker()
 
@@ -547,6 +603,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
         sample_detections = {}
         # Phase 2: backbone feature cache — skip ViT re-encoding across runs.
+        cache_key = self._view_cache_key
         ctx = (
             self._backbone_cache_context(cache_key)
             if cache_key is not None
@@ -602,20 +659,9 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
         assert self._curr_frame_width is not None
         assert self._curr_frame_height is not None
 
-        cache_key = getattr(self, "_view_cache_key", None)
-
-        # Phase 1: inference_state cache — reuse loaded frame tensors across runs.
-        if cache_key is not None and cache_key in self._inference_state_cache:
-            inference_state = self._inference_state_cache[cache_key]
-            self.model.reset_state(inference_state)
-        else:
-            image_folder = getattr(video_reader, "image_folder", None)
-            if image_folder is not None:
-                inference_state = self.model.init_state(image_folder)
-            else:
-                inference_state = self.model.init_state((sample, video_reader))
-            if cache_key is not None:
-                self._inference_state_cache[cache_key] = inference_state
+        # Phase 1: GetItem handles init_state on first call and reset_state on
+        # subsequent calls with the same cache_key (frame tensors are reused).
+        inference_state = self._get_item({"sample": sample, "video_reader": video_reader})
 
         tracker = SAM2ObjectTracker()
 
@@ -646,6 +692,7 @@ class SegmentAnything2VideoModel(FiftyOneSegmentAnything2VideoModel):
 
         sample_detections = {}
         # Phase 2: backbone feature cache — skip ViT re-encoding across runs.
+        cache_key = self._view_cache_key
         ctx = (
             self._backbone_cache_context(cache_key)
             if cache_key is not None

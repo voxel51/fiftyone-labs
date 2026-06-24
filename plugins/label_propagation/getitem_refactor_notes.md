@@ -146,3 +146,62 @@ correctly across calls.
   coexist: the dtype patches run on the *output* of `_run_single_frame_inference`
   and `_run_memory_encoder`, while the backbone patch replaces `_get_image_feature`
   which runs before `_run_single_frame_inference`.  No overlap.
+
+---
+
+## Local refactor completed (2026-06-24)
+
+The local GetItem refactor has been applied to `sam2_local.py`.  Here is what
+changed and what remains for the upstream merge.
+
+### What was done
+
+**New classes added** (before `SAM2ObjectTracker`):
+
+- `SAM2VideoGetItem(fout.GetItem)` — base class.  `required_keys = ["sample",
+  "video_reader"]`.  `__call__(d)` calls `predictor.init_state(image_folder)`
+  or `predictor.init_state((sample, video_reader))` exactly as the old inline
+  code did.  No caching.
+
+- `CachingSAM2VideoGetItem(SAM2VideoGetItem)` — adds Phase 1
+  inference_state caching.  Holds a **reference** to the owning model's
+  `_inference_state_cache` dict (not a copy) so that `model._inference_state_cache`
+  still reflects cache activity and callers can clear it directly.  `cache_key`
+  is a plain `Optional[str]` attribute set externally before each call.
+
+**Changes to `SegmentAnything2VideoModel`:**
+
+- `__init__`: `_view_cache_key` instance attribute removed; replaced by
+  `self._get_item = CachingSAM2VideoGetItem(self.model, self._inference_state_cache)`.
+
+- `_view_cache_key` is now a property backed by `_get_item.cache_key`, so
+  `propagation.py` (which sets `model._view_cache_key`) requires **no changes**.
+
+- `_forward_pass_boxes` / `_forward_pass_points`: the old Phase 1
+  if/else (`cache_key in self._inference_state_cache` … `init_state` …
+  `self._inference_state_cache[key] = …`) is replaced by one line:
+  ```python
+  inference_state = self._get_item({"sample": sample, "video_reader": video_reader})
+  ```
+  Phase 2 `_backbone_cache_context` is unchanged (Option B, lazy).
+
+### What still needs doing for the upstream merge
+
+When merging with `fiftyone/utils/sam2.py`:
+
+1. The upstream `SegmentAnything2VideoModel` already gets a `predict(video_reader,
+   sample)` entry point.  You'll want to wire `_get_item` in the same place: create
+   it in `__init__`, set `cache_key` from wherever the view fingerprint is managed,
+   and call it at the top of `_forward_pass_boxes` / `_forward_pass_points`.
+
+2. `SAM2VideoGetItem.required_keys = ["sample", "video_reader"]` is not
+   standard field-name keys — these objects are passed directly in the dict rather
+   than being looked up via `field_mapping`.  If the upstream wants true GetItem
+   integration with `apply_model`'s field-extraction machinery, the keys would need
+   to change (e.g., `"filepath"` + `"frames"`) and `__call__` would reconstruct the
+   reader from those field values.  For now, the GetItem contract (separation of
+   loading from inference) is satisfied without plugging into the field-mapping
+   pipeline.
+
+3. `_backbone_cache_context` stays on the model (Option B).  No changes needed
+   there for the merge.
