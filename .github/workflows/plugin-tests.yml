@@ -37,12 +37,12 @@ jobs:
           - "8"
     steps:
       - name: Checkout `voxel51/fiftyone-labs`
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Implementation question for ML:
       # which enterprise version or branch do you want to use?
       - name: Checkout `voxel51/fiftyone`
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: fiftyone
           repository: voxel51/fiftyone-teams
